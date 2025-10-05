@@ -11,6 +11,7 @@ A lightweight, customizable notification overlay library for macOS built with Sw
 - 🔧 **Extensible Architecture**: Protocol-based design ready for Lottie/Rive integration
 - 🪟 **Advanced Window Management**: Always-on-top overlays with customizable levels
 - 🎯 **Declarative API**: Both functional and builder-style APIs
+- ✨ **Rich Customization**: Window positioning, sizing, transparency, blur effects, and opacity control
 
 ## Requirements
 
@@ -26,7 +27,7 @@ Add the following to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/vibecare-io/macos-notify.git", from: "1.0.0")
+    .package(url: "https://github.com/vibecare-io/vibe-notify-macos.git", branch: "main")
 ]
 ```
 
@@ -95,104 +96,68 @@ VibeNotify.shared.showSVG(
 )
 ```
 
+## Customization
+
+VibeNotify offers extensive customization options including:
+
+- **Window Positioning**: 9 predefined positions (topLeft, top, topRight, left, center, right, bottomLeft, bottom, bottomRight)
+- **Custom Sizing**: Set custom width and height for notifications
+- **Moveable Windows**: Drag notifications to reposition them
+- **Transparent Backgrounds**: macOS-native blur materials (HUD, popover, sidebar, menu, etc.)
+- **Window Opacity**: Control transparency from 0.0 to 1.0
+- **Screen Blur**: Blur the entire screen background behind notifications
+- **Tap to Dismiss**: Click anywhere outside the notification to close it
+
+### Quick Customization Examples
+
+```swift
+// Centered notification with custom size
+VibeNotify.shared.show(
+    title: "Welcome",
+    message: "Centered on screen",
+    icon: .success,
+    position: .center,
+    width: 400,
+    height: 200
+)
+
+// Moveable notification with transparent background
+VibeNotify.shared.show(
+    title: "Drag Me!",
+    message: "Move me anywhere",
+    icon: .info,
+    position: .topRight,
+    width: 350,
+    height: 180,
+    moveable: true,
+    transparent: true,
+    transparentMaterial: .hudWindow
+)
+
+// Screen blur with custom opacity
+VibeNotify.shared.show(
+    title: "Focus Mode",
+    message: "Full screen blur background",
+    icon: .success,
+    position: .center,
+    width: 450,
+    height: 200,
+    windowOpacity: 0.95,
+    screenBlur: true,
+    screenBlurMaterial: .underWindowBackground,
+    dismissOnScreenTap: true
+)
+```
+
+**📖 See [CUSTOMIZATION.md](CUSTOMIZATION.md) for comprehensive customization guide including all materials, positions, and advanced features.**
+
 ## Presentation Modes
 
-### Full Screen
 ```swift
 .presentationMode(.fullScreen)
-```
-
-### Banner
-```swift
 .presentationMode(.banner(edge: .top, height: 120))
-.presentationMode(.banner(edge: .bottom, height: 100))
-```
-
-### Toast
-```swift
 .presentationMode(.toast(corner: .topRight, size: CGSize(width: 300, height: 150)))
-.presentationMode(.toast(corner: .bottomLeft, size: CGSize(width: 300, height: 150)))
-```
-
-### Custom
-```swift
 .presentationMode(.custom(frame: CGRect(x: 100, y: 100, width: 400, height: 300)))
-```
-
-## Window Levels
-
-Control how the notification appears relative to other windows:
-
-```swift
-.windowLevel(.normal)      // Standard window level
-.windowLevel(.floating)    // Above normal windows (default)
-.windowLevel(.popup)       // Above floating windows
-.windowLevel(.screenSaver) // Highest level
-```
-
-## Notification Styles
-
-### Built-in Styles
-
-```swift
-.style(.default)  // Standard macOS appearance
-.style(.minimal)  // No background, minimal padding
-.style(.card)     // Card-style with shadow
-```
-
-### Custom Style
-
-```swift
-let customStyle = StandardNotification.Style(
-    backgroundColor: .blue.opacity(0.1),
-    cornerRadius: 20,
-    padding: 30,
-    shadow: StandardNotification.Style.Shadow(
-        color: .black.opacity(0.3),
-        radius: 15,
-        x: 0,
-        y: 5
-    )
-)
-
-VibeNotify.shared.show(
-    title: "Custom Style",
-    message: "With custom colors and shadow",
-    style: customStyle
-)
-```
-
-## Icon Types
-
-```swift
-.icon(.success)                          // Green checkmark
-.icon(.error)                            // Red X
-.icon(.warning)                          // Orange triangle
-.icon(.info)                             // Blue info circle
-.icon(.system("star.fill"))              // SF Symbol
-.icon(.image(NSImage(named: "custom")!)) // Custom image
-.icon(.svg("/path/to/icon.svg"))         // SVG file
-```
-
-## Auto-Dismiss
-
-```swift
-// Simple auto-dismiss
-autoDismiss: StandardNotification.AutoDismiss(delay: 3.0)
-
-// With progress bar
-autoDismiss: StandardNotification.AutoDismiss(delay: 5.0, showProgress: true)
-```
-
-## Manual Dismissal
-
-```swift
-// Dismiss specific notification
-let id = VibeNotify.shared.show(title: "Test", message: "Hello")
-VibeNotify.shared.dismiss(id: id)
-
-// Dismiss all notifications
-VibeNotify.shared.dismissAll()
 ```
 
 ## Convenience Methods
@@ -209,6 +174,20 @@ VibeNotify.shared.warning(message: "Please review")
 
 // Info (blue info icon, auto-dismisses in 4s)
 VibeNotify.shared.info(message: "New features available")
+```
+
+## Dismissal
+
+```swift
+// Auto-dismiss with progress bar
+autoDismiss: StandardNotification.AutoDismiss(delay: 5.0, showProgress: true)
+
+// Dismiss specific notification
+let id = VibeNotify.shared.show(title: "Test", message: "Hello")
+VibeNotify.shared.dismiss(id: id)
+
+// Dismiss all notifications
+VibeNotify.shared.dismissAll()
 ```
 
 ## Architecture
@@ -274,13 +253,14 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT License - See [LICENSE.md](LICENSE.md) file for details
 
 ## Credits
 
 Inspired by:
 - [swiftDialog](https://github.com/swiftDialog/swiftDialog) - Dialog system for macOS
 - [SVGView](https://github.com/exyte/SVGView) - SVG rendering in SwiftUI
+- [SwiftDialog](https://github.com/swiftDialog/swiftDialog) - Create user-notifications on macOS with swiftDialog
 
 ## Author
 

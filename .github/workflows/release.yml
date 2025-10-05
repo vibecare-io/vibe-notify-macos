@@ -1,0 +1,96 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build Swift Package
+        run: swift build -c release
+
+      # we don't have test for now
+      # - name: Run Tests
+      #   run: swift test || true
+      #   continue-on-error: true
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          release_name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## VibeNotify ${{ steps.get_version.outputs.VERSION }}
+
+            A lightweight, customizable notification overlay library for macOS built with SwiftUI.
+
+            ### Installation
+
+            Add to your `Package.swift`:
+
+            ```swift
+            dependencies: [
+                .package(url: "https://github.com/vibecare-io/vibe-notify-macos.git", from: "${{ steps.get_version.outputs.VERSION }}")
+            ]
+            ```
+
+            ### Changes
+
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
+            ### Documentation
+
+            - [README.md](https://github.com/vibecare-io/vibe-notify-macos/blob/main/README.md)
+            - [CUSTOMIZATION.md](https://github.com/vibecare-io/vibe-notify-macos/blob/main/CUSTOMIZATION.md)
+            - [GETTING_STARTED.md](https://github.com/vibecare-io/vibe-notify-macos/blob/main/GETTING_STARTED.md)
+
+            ---
+
+            Built with ❤️ for the macOS developer community
+          draft: false
+          prerelease: false

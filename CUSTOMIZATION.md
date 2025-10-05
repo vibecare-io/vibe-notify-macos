@@ -201,7 +201,7 @@ VibeNotify.shared.show(
     position: .center,
     width: 500,
     height: 250,
-    blurScreen: true  // Blur entire screen
+    screenBlur: true  // Blur entire screen
 )
 
 // Custom blur material
@@ -212,7 +212,7 @@ VibeNotify.shared.show(
     position: .center,
     width: 450,
     height: 200,
-    blurScreen: true,
+    screenBlur: true,
     screenBlurMaterial: .underWindowBackground
 )
 
@@ -224,7 +224,7 @@ VibeNotify.shared.show(
     position: .center,
     width: 400,
     height: 180,
-    blurScreen: true,
+    screenBlur: true,
     dismissOnScreenTap: true  // Click background to dismiss
 )
 ```
