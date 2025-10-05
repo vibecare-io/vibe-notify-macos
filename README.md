@@ -14,7 +14,7 @@ A lightweight, customizable notification overlay library for macOS built with Sw
 
 ## Requirements
 
-- macOS 12.0+
+- macOS 14.0+
 - Swift 5.9+
 - Xcode 15.0+
 
@@ -26,7 +26,7 @@ Add the following to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/VibeNotify.git", from: "1.0.0")
+    .package(url: "https://github.com/vibecare-io/macos-notify.git", from: "1.0.0")
 ]
 ```
 

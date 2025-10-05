@@ -23,7 +23,18 @@ public final class VibeNotify {
         buttons: [StandardNotification.Button] = [],
         style: StandardNotification.Style = .default,
         presentationMode: OverlayWindowManager.PresentationMode = .banner(edge: .top, height: 120),
+        position: OverlayWindowManager.WindowPosition? = nil,
+        width: CGFloat? = nil,
+        height: CGFloat? = nil,
         windowLevel: OverlayWindowManager.WindowLevel = .floating,
+        moveable: Bool = false,
+        alwaysOnTop: Bool = true,
+        transparent: Bool = false,
+        transparentMaterial: NSVisualEffectView.Material = .hudWindow,
+        windowOpacity: CGFloat = 1.0,
+        screenBlur: Bool = false,
+        screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground,
+        dismissOnScreenTap: Bool = false,
         autoDismiss: StandardNotification.AutoDismiss? = nil
     ) -> UUID {
         let notification = StandardNotification(
@@ -35,7 +46,27 @@ public final class VibeNotify {
             autoDismiss: autoDismiss
         )
 
-        return showNotification(notification, presentationMode: presentationMode, windowLevel: windowLevel)
+        let config = OverlayWindowManager.Configuration(
+            presentationMode: presentationMode,
+            position: position,
+            width: width,
+            height: height,
+            windowLevel: windowLevel,
+            backgroundColor: .clear,
+            isTransparent: true,
+            ignoresMouseEvents: false,
+            isMoveable: moveable,
+            alwaysOnTop: alwaysOnTop,
+            transparent: transparent,
+            transparentMaterial: transparentMaterial,
+            windowOpacity: windowOpacity,
+            screenBlur: screenBlur,
+            screenBlurMaterial: screenBlurMaterial,
+            dismissOnScreenTap: dismissOnScreenTap,
+            animatePresentation: true
+        )
+
+        return showNotification(notification, configuration: config)
     }
 
     /// Show an SVG-based notification
@@ -168,22 +199,16 @@ public final class VibeNotify {
 
     private func showNotification(
         _ notification: StandardNotification,
-        presentationMode: OverlayWindowManager.PresentationMode,
-        windowLevel: OverlayWindowManager.WindowLevel
+        configuration: OverlayWindowManager.Configuration
     ) -> UUID {
         let id = UUID()
 
-        let config = OverlayWindowManager.Configuration(
-            presentationMode: presentationMode,
-            windowLevel: windowLevel,
-            backgroundColor: .clear,
-            isTransparent: true,
-            ignoresMouseEvents: false,
-            animatePresentation: true
-        )
-
-        windowManager.show(id: id, configuration: config) {
-            StandardNotificationView(notification: notification) { [weak self] in
+        windowManager.show(id: id, configuration: configuration) {
+            StandardNotificationView(
+                notification: notification,
+                transparent: configuration.transparent,
+                transparentMaterial: configuration.transparentMaterial
+            ) { [weak self] in
                 self?.dismiss(id: id)
             }
         }
@@ -236,7 +261,18 @@ public class NotificationBuilder {
     private var buttons: [StandardNotification.Button] = []
     private var style: StandardNotification.Style = .default
     private var presentationMode: OverlayWindowManager.PresentationMode = .banner(edge: .top, height: 120)
+    private var position: OverlayWindowManager.WindowPosition?
+    private var width: CGFloat?
+    private var height: CGFloat?
     private var windowLevel: OverlayWindowManager.WindowLevel = .floating
+    private var moveable: Bool = false
+    private var alwaysOnTop: Bool = true
+    private var transparent: Bool = false
+    private var transparentMaterial: NSVisualEffectView.Material = .hudWindow
+    private var windowOpacity: CGFloat = 1.0
+    private var screenBlur: Bool = false
+    private var screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground
+    private var dismissOnScreenTap: Bool = false
     private var autoDismiss: StandardNotification.AutoDismiss?
 
     public func title(_ title: String) -> Self {
@@ -274,6 +310,53 @@ public class NotificationBuilder {
         return self
     }
 
+    public func position(_ position: OverlayWindowManager.WindowPosition) -> Self {
+        self.position = position
+        return self
+    }
+
+    public func width(_ width: CGFloat) -> Self {
+        self.width = width
+        return self
+    }
+
+    public func height(_ height: CGFloat) -> Self {
+        self.height = height
+        return self
+    }
+
+    public func moveable(_ moveable: Bool = true) -> Self {
+        self.moveable = moveable
+        return self
+    }
+
+    public func alwaysOnTop(_ alwaysOnTop: Bool = true) -> Self {
+        self.alwaysOnTop = alwaysOnTop
+        return self
+    }
+
+    public func transparent(_ enabled: Bool = true, material: NSVisualEffectView.Material = .hudWindow) -> Self {
+        self.transparent = enabled
+        self.transparentMaterial = material
+        return self
+    }
+
+    public func windowOpacity(_ opacity: CGFloat) -> Self {
+        self.windowOpacity = opacity
+        return self
+    }
+
+    public func screenBlur(_ enabled: Bool = true, material: NSVisualEffectView.Material = .underWindowBackground) -> Self {
+        self.screenBlur = enabled
+        self.screenBlurMaterial = material
+        return self
+    }
+
+    public func dismissOnScreenTap(_ enabled: Bool = true) -> Self {
+        self.dismissOnScreenTap = enabled
+        return self
+    }
+
     public func autoDismiss(after delay: TimeInterval, showProgress: Bool = false) -> Self {
         self.autoDismiss = StandardNotification.AutoDismiss(delay: delay, showProgress: showProgress)
         return self
@@ -288,7 +371,18 @@ public class NotificationBuilder {
             buttons: buttons,
             style: style,
             presentationMode: presentationMode,
+            position: position,
+            width: width,
+            height: height,
             windowLevel: windowLevel,
+            moveable: moveable,
+            alwaysOnTop: alwaysOnTop,
+            transparent: transparent,
+            transparentMaterial: transparentMaterial,
+            windowOpacity: windowOpacity,
+            screenBlur: screenBlur,
+            screenBlurMaterial: screenBlurMaterial,
+            dismissOnScreenTap: dismissOnScreenTap,
             autoDismiss: autoDismiss
         )
     }

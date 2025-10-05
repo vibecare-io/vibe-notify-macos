@@ -4,11 +4,20 @@ import SwiftUI
 public struct StandardNotificationView: View {
     let notification: StandardNotification
     let onDismiss: () -> Void
+    let transparent: Bool
+    let transparentMaterial: NSVisualEffectView.Material
 
     @State private var progress: Double = 1.0
 
-    public init(notification: StandardNotification, onDismiss: @escaping () -> Void) {
+    public init(
+        notification: StandardNotification,
+        transparent: Bool = false,
+        transparentMaterial: NSVisualEffectView.Material = .hudWindow,
+        onDismiss: @escaping () -> Void
+    ) {
         self.notification = notification
+        self.transparent = transparent
+        self.transparentMaterial = transparentMaterial
         self.onDismiss = onDismiss
     }
 
@@ -55,8 +64,15 @@ public struct StandardNotificationView: View {
             }
         }
         .padding(notification.style.padding)
-        .background(notification.style.backgroundColor)
-        .cornerRadius(notification.style.cornerRadius)
+        .background {
+            if transparent {
+                BlurBackgroundView(material: transparentMaterial)
+                    .cornerRadius(notification.style.cornerRadius)
+            } else {
+                notification.style.backgroundColor
+                    .cornerRadius(notification.style.cornerRadius)
+            }
+        }
         .if(notification.style.shadow != nil) { view in
             view.shadow(
                 color: notification.style.shadow!.color,
