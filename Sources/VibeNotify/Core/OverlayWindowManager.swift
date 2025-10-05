@@ -152,7 +152,7 @@ public class OverlayWindowManager {
 
         // Animate if needed
         if configuration.animatePresentation {
-            animateShow(window: window)
+            animateShow(window: window, targetOpacity: configuration.windowOpacity)
         } else {
             window.makeKeyAndOrderFront(nil)
         }
@@ -349,14 +349,14 @@ public class OverlayWindowManager {
         return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 
-    private func animateShow(window: NSWindow) {
+    private func animateShow(window: NSWindow, targetOpacity: CGFloat = 1.0) {
         window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            window.animator().alphaValue = 1.0
+            window.animator().alphaValue = targetOpacity
         }
     }
 
