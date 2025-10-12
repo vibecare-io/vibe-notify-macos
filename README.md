@@ -1,6 +1,9 @@
 # VibeNotify
-
 A lightweight, customizable notification overlay library for macOS built with SwiftUI.
+
+<p align="center">
+  <img src="res/img/hungry_momo.png" alt="VibeNotify Demo" width="600"/>
+</p>
 
 ## Features
 

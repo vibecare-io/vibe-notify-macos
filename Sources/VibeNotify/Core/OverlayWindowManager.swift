@@ -1,6 +1,24 @@
 import AppKit
 import SwiftUI
 
+/// Custom NSWindow subclass that handles ESC key to dismiss
+class DismissibleWindow: NSWindow {
+    var onEscapePressed: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // Check if ESC key was pressed (keyCode 53)
+        if event.keyCode == 53 {
+            onEscapePressed?()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    override var canBecomeKey: Bool {
+        return true
+    }
+}
+
 /// Manages overlay windows for notifications with customizable presentation modes
 @MainActor
 public class OverlayWindowManager {
@@ -147,6 +165,11 @@ public class OverlayWindowManager {
 
         window.contentView = hostingView
 
+        // Set up ESC key handler to dismiss the notification
+        window.onEscapePressed = { [weak self] in
+            self?.dismiss(id: id, animated: true)
+        }
+
         // Store window reference
         activeWindows[id] = window
 
@@ -195,7 +218,7 @@ public class OverlayWindowManager {
 
     // MARK: - Private Methods
 
-    private func createWindow(configuration: Configuration) -> NSWindow {
+    private func createWindow(configuration: Configuration) -> DismissibleWindow {
         let screen = configuration.screen ?? NSScreen.main ?? NSScreen.screens.first!
         var frame = calculateFrame(for: configuration.presentationMode, on: screen)
 
@@ -212,7 +235,7 @@ public class OverlayWindowManager {
             frame = calculateFrameForPosition(position, size: frame.size, on: screen)
         }
 
-        let window = NSWindow(
+        let window = DismissibleWindow(
             contentRect: frame,
             styleMask: [.borderless],
             backing: .buffered,
