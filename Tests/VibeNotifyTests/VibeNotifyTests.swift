@@ -1,4 +1,4 @@
-import Testing
+import TestingE
 @testable import VibeNotify
 
 @Test func example() async throws {

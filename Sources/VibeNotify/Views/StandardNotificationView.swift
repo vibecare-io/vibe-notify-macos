@@ -63,6 +63,7 @@ public struct StandardNotificationView: View {
                 .padding(.top, 8)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(notification.style.padding)
         .background {
             if transparent {
