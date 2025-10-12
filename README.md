@@ -7,14 +7,15 @@ A lightweight, customizable notification overlay library for macOS built with Sw
 
 ## Features
 
-- 🎨 **Multiple Presentation Modes**: Full-screen, banner, toast, and custom positioning
+- 🎨 **Multiple Presentation Modes**: Full-screen, banner, toast, and 9-position layouts
 - 🎭 **SwiftDialog-Inspired API**: Familiar configuration options for macOS administrators
 - 🎬 **Built-in Animations**: Smooth SwiftUI transitions and spring animations
-- 🖼️ **SVG Support**: Render and animate vector graphics using SVGView
+- 🖼️ **SVG Support**: Full SVG rendering with SVGView - icons and full notifications
 - 🔧 **Extensible Architecture**: Protocol-based design ready for Lottie/Rive integration
 - 🪟 **Advanced Window Management**: Always-on-top overlays with customizable levels
-- 🎯 **Declarative API**: Both functional and builder-style APIs
-- ✨ **Rich Customization**: Window positioning, sizing, transparency, blur effects, and opacity control
+- 🎯 **Builder API**: Declarative, chainable builder pattern for easy configuration
+- ✨ **Rich Customization**: 9 positions, moveable windows, transparency, screen blur, opacity
+- ⌨️ **Keyboard Support**: ESC key to dismiss, keyboard shortcuts in demo app
 
 ## Requirements
 
@@ -36,44 +37,83 @@ dependencies: [
 
 ## Quick Start
 
-### Simple Success Notification
+### Simple Notifications
 
 ```swift
 import VibeNotify
 
-VibeNotify.shared.success(message: "Operation completed successfully!")
+// Success notification (auto-dismisses in 3s)
+VibeNotify.shared.success(message: "Operation completed!")
+
+// Error notification (manual dismiss)
+VibeNotify.shared.error(message: "Something went wrong")
 ```
 
-### Custom Notification
+### Builder API (Recommended)
 
-```swift
-VibeNotify.shared.show(
-    title: "Welcome",
-    message: "Getting started with VibeNotify",
-    icon: .success,
-    presentationMode: .banner(edge: .top, height: 120),
-    autoDismiss: StandardNotification.AutoDismiss(delay: 5.0, showProgress: true)
-)
-```
-
-### Builder API
+The Builder API provides a clean, declarative way to create notifications:
 
 ```swift
 VibeNotify.builder()
     .title("Confirm Action")
     .message("Do you want to proceed?")
     .icon(.warning)
-    .button(StandardNotification.Button(title: "Confirm", style: .primary) {
-        print("Confirmed!")
-    })
-    .button(StandardNotification.Button(title: "Cancel", style: .secondary) {
-        print("Cancelled")
-    })
-    .presentationMode(.banner(edge: .top, height: 150))
+    .button(
+        StandardNotification.Button(
+            title: "Confirm",
+            style: .primary
+        ) {
+            print("Confirmed!")
+        }
+    )
+    .button(
+        StandardNotification.Button(
+            title: "Cancel",
+            style: .secondary
+        ) {
+            print("Cancelled")
+        }
+    )
+    .position(.center)
+    .width(450)
+    .height(200)
     .show()
 ```
 
-### Full-Screen Custom View
+### With Positioning & Customization
+
+```swift
+VibeNotify.builder()
+    .title("Beautiful Notification")
+    .message("With transparency and blur effects")
+    .icon(.success)
+    .position(.topRight)
+    .width(400)
+    .height(180)
+    .transparent(true, material: .hudWindow)
+    .moveable(true)
+    .autoDismiss(after: 5.0, showProgress: true)
+    .show()
+```
+
+### SVG Notification
+
+```swift
+VibeNotify.builder()
+    .svg(
+        "/path/to/icon.svg",
+        size: CGSize(width: 200, height: 200),
+        interactive: true
+    )
+    .title("Vector Graphics")
+    .message("Full SVG rendering with SVGView")
+    .presentationMode(.toast(corner: .topRight, size: CGSize(width: 350, height: 400)))
+    .moveable(true)
+    .transparent(true)
+    .show()
+```
+
+### Custom SwiftUI View
 
 ```swift
 VibeNotify.shared.showCustom(presentationMode: .fullScreen) {
@@ -85,18 +125,6 @@ VibeNotify.shared.showCustom(presentationMode: .fullScreen) {
         }
     }
 }
-```
-
-### SVG Notification
-
-```swift
-VibeNotify.shared.showSVG(
-    svgPath: "/path/to/icon.svg",
-    title: "Vector Graphics",
-    message: "Rendered with SVGView",
-    svgSize: CGSize(width: 200, height: 200),
-    presentationMode: .toast(corner: .topRight, size: CGSize(width: 350, height: 400))
-)
 ```
 
 ## Customization
@@ -111,48 +139,46 @@ VibeNotify offers extensive customization options including:
 - **Screen Blur**: Blur the entire screen background behind notifications
 - **Tap to Dismiss**: Click anywhere outside the notification to close it
 
-### Quick Customization Examples
+### Builder API Examples
 
 ```swift
-// Centered notification with custom size
-VibeNotify.shared.show(
-    title: "Welcome",
-    message: "Centered on screen",
-    icon: .success,
-    position: .center,
-    width: 400,
-    height: 200
-)
+// Centered with custom size
+VibeNotify.builder()
+    .title("Welcome")
+    .message("Centered on screen")
+    .icon(.success)
+    .position(.center)
+    .width(400)
+    .height(200)
+    .show()
 
-// Moveable notification with transparent background
-VibeNotify.shared.show(
-    title: "Drag Me!",
-    message: "Move me anywhere",
-    icon: .info,
-    position: .topRight,
-    width: 350,
-    height: 180,
-    moveable: true,
-    transparent: true,
-    transparentMaterial: .hudWindow
-)
+// Moveable with transparent background
+VibeNotify.builder()
+    .title("Drag Me!")
+    .message("Move me anywhere")
+    .icon(.info)
+    .position(.topRight)
+    .width(350)
+    .height(180)
+    .moveable(true)
+    .transparent(true, material: .hudWindow)
+    .show()
 
-// Screen blur with custom opacity
-VibeNotify.shared.show(
-    title: "Focus Mode",
-    message: "Full screen blur background",
-    icon: .success,
-    position: .center,
-    width: 450,
-    height: 200,
-    windowOpacity: 0.95,
-    screenBlur: true,
-    screenBlurMaterial: .underWindowBackground,
-    dismissOnScreenTap: true
-)
+// Screen blur with dismiss on tap
+VibeNotify.builder()
+    .title("Focus Mode")
+    .message("Screen blurred for focus")
+    .icon(.success)
+    .position(.center)
+    .width(450)
+    .height(200)
+    .windowOpacity(0.95)
+    .screenBlur(true, material: .underWindowBackground)
+    .dismissOnScreenTap(true)
+    .show()
 ```
 
-**📖 See [CUSTOMIZATION.md](CUSTOMIZATION.md) for comprehensive customization guide including all materials, positions, and advanced features.**
+**📖 See [DOCS.md](DOCS.md) for comprehensive documentation with builder API focus, examples, and advanced features.**
 
 ## Presentation Modes
 
@@ -228,12 +254,20 @@ struct RiveNotification: NotificationContent {
 
 ## Demo Application
 
-A demo application is included in the `VibeNotifyDemo` directory. To run:
+An interactive demo application is included showcasing all features:
 
 ```bash
 cd VibeNotifyDemo
 swift run
 ```
+
+**Features:**
+- 📚 Topic-based exploration (Quick Start, Basic Types, Positioning, etc.)
+- ⚡️ Quick Start presets (Success Toast, Error Modal, etc.)
+- 🎨 Live customization with instant preview
+- 💻 Generated code examples (copy-paste ready)
+- ⌨️ Keyboard shortcuts (⌘P to preview, ⌘D to dismiss all)
+- 🎭 SVG upload and preview support
 
 ## Dependencies
 
