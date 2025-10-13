@@ -142,18 +142,21 @@ public struct SVGNotification {
     public let message: String?
     public let svgSize: CGSize
     public let interactive: Bool
+    public let autoDismiss: StandardNotification.AutoDismiss?
 
     public init(
         svgPath: String,
         title: String? = nil,
         message: String? = nil,
         svgSize: CGSize = CGSize(width: 200, height: 200),
-        interactive: Bool = false
+        interactive: Bool = false,
+        autoDismiss: StandardNotification.AutoDismiss? = nil
     ) {
         self.svgPath = svgPath
         self.title = title
         self.message = message
         self.svgSize = svgSize
         self.interactive = interactive
+        self.autoDismiss = autoDismiss
     }
 }

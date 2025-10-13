@@ -411,6 +411,23 @@ VibeNotify.builder()
     .show()
 ```
 
+### SVG with Auto-Dismiss
+
+```swift
+VibeNotify.builder()
+    .svg(
+        "/path/to/loading.svg",
+        size: CGSize(width: 200, height: 200)
+    )
+    .title("Loading...")
+    .message("Please wait")
+    .position(.center)
+    .width(400)
+    .height(300)
+    .autoDismiss(after: 3.0, showProgress: true)
+    .show()
+```
+
 ---
 
 ## Advanced Features

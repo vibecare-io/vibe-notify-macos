@@ -110,6 +110,7 @@ VibeNotify.builder()
     .presentationMode(.toast(corner: .topRight, size: CGSize(width: 350, height: 400)))
     .moveable(true)
     .transparent(true)
+    .autoDismiss(after: 5.0, showProgress: true)
     .show()
 ```
 

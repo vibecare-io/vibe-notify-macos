@@ -194,42 +194,64 @@ class NotificationConfig: ObservableObject {
   }
 
   func generateCode() -> String {
-    // Handle SVG full notification
+    // Handle SVG full notification - use Builder API
     if useSVGNotification, let svgPath = mediaPath, mediaType == .svg {
-      var code = "VibeNotify.shared.showSVG(\n"
-      code += "  svgPath: \"\(svgPath)\",\n"
-      code += "  title: \"\(title)\",\n"
-      code += "  message: \"\(message)\",\n"
-      code += "  svgSize: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
+      var code = "VibeNotify.builder()\n"
+      code += "  .svg(\n"
+      code += "    \"\(svgPath)\",\n"
+      code += "    size: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
 
       if svgInteractive {
-        code += ",\n  interactive: true"
+        code += ",\n    interactive: true"
       }
+      code += "\n  )\n"
+
+      code += "  .title(\"\(title)\")\n"
+      code += "  .message(\"\(message)\")\n"
 
       if presentationMode == .custom {
-        code += ",\n  presentationMode: .custom(frame: CGRect(x: 100, y: 100, width: \(Int(width)), height: \(Int(height))))"
+        code += "  .position(.\(positionName(position)))\n"
+        code += "  .width(\(Int(width)))\n"
+        code += "  .height(\(Int(height)))\n"
       } else {
-        code += ",\n  presentationMode: \(presentationModeCode())"
+        code += "  .presentationMode(\(presentationModeCode()))\n"
       }
 
       if moveable {
-        code += ",\n  moveable: true"
+        code += "  .moveable(true)\n"
       }
 
       if transparent {
-        code += ",\n  transparent: true"
-        code += ",\n  transparentMaterial: .\(materialName(transparentMaterial))"
+        code += "  .transparent(\n"
+        code += "    true,\n"
+        code += "    material: .\(materialName(transparentMaterial))\n"
+        code += "  )\n"
+      }
+
+      if windowOpacity < 1.0 {
+        code += "  .windowOpacity(\(String(format: "%.2f", windowOpacity)))\n"
       }
 
       if screenBlur {
-        code += ",\n  screenBlur: true"
-        code += ",\n  screenBlurMaterial: .\(materialName(screenBlurMaterial))"
+        code += "  .screenBlur(\n"
+        code += "    true,\n"
+        code += "    material: .\(materialName(screenBlurMaterial))\n"
+        code += "  )\n"
         if dismissOnScreenTap {
-          code += ",\n  dismissOnScreenTap: true"
+          code += "  .dismissOnScreenTap(true)\n"
         }
       }
 
-      code += "\n)"
+      if autoDismiss {
+        code += "  .autoDismiss(\n"
+        code += "    after: \(String(format: "%.1f", autoDismissDelay))"
+        if showProgress {
+          code += ",\n    showProgress: true"
+        }
+        code += "\n  )\n"
+      }
+
+      code += "  .show()"
       return code
     }
 
@@ -441,28 +463,38 @@ class NotificationConfig: ObservableObject {
 
   @MainActor
   func showNotification() {
-    // Handle SVG full notification
+    // Handle SVG full notification using Builder API
     if useSVGNotification, let svgPath = mediaPath, mediaType == .svg {
-      VibeNotify.shared.showSVG(
-        svgPath: svgPath,
-        title: title,
-        message: message,
-        svgSize: mediaSize,
-        interactive: svgInteractive,
-        presentationMode: presentationMode == .custom
-          ? .custom(frame: CGRect(x: 100, y: 100, width: width, height: height))
-          : presentationMode.toOverlayMode(),
-        position: presentationMode == .custom ? position : nil,
-        width: presentationMode == .custom ? width : nil,
-        height: presentationMode == .custom ? height : nil,
-        moveable: moveable,
-        transparent: transparent,
-        transparentMaterial: transparentMaterial,
-        windowOpacity: windowOpacity,
-        screenBlur: screenBlur,
-        screenBlurMaterial: screenBlurMaterial,
-        dismissOnScreenTap: dismissOnScreenTap
-      )
+      let autoDismissConfig = autoDismiss
+        ? StandardNotification.AutoDismiss(delay: autoDismissDelay, showProgress: showProgress)
+        : nil
+
+      var builder = VibeNotify.builder()
+        .svg(svgPath, size: mediaSize, interactive: svgInteractive)
+        .title(title)
+        .message(message)
+        .moveable(moveable)
+        .transparent(transparent, material: transparentMaterial)
+        .windowOpacity(windowOpacity)
+        .screenBlur(screenBlur, material: screenBlurMaterial)
+        .dismissOnScreenTap(dismissOnScreenTap)
+
+      // Apply position or presentation mode
+      if presentationMode == .custom {
+        builder = builder
+          .position(position)
+          .width(width)
+          .height(height)
+      } else {
+        builder = builder.presentationMode(presentationMode.toOverlayMode())
+      }
+
+      // Add auto-dismiss if configured
+      if let autoDismiss = autoDismissConfig {
+        builder = builder.autoDismiss(after: autoDismiss.delay, showProgress: autoDismiss.showProgress)
+      }
+
+      builder.show()
       return
     }
 

@@ -89,14 +89,16 @@ public final class VibeNotify {
         windowOpacity: CGFloat = 1.0,
         screenBlur: Bool = false,
         screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground,
-        dismissOnScreenTap: Bool = false
+        dismissOnScreenTap: Bool = false,
+        autoDismiss: StandardNotification.AutoDismiss? = nil
     ) -> UUID {
         let notification = SVGNotification(
             svgPath: svgPath,
             title: title,
             message: message,
             svgSize: svgSize,
-            interactive: interactive
+            interactive: interactive,
+            autoDismiss: autoDismiss
         )
 
         let config = OverlayWindowManager.Configuration(
@@ -418,7 +420,8 @@ public class NotificationBuilder {
                 windowOpacity: windowOpacity,
                 screenBlur: screenBlur,
                 screenBlurMaterial: screenBlurMaterial,
-                dismissOnScreenTap: dismissOnScreenTap
+                dismissOnScreenTap: dismissOnScreenTap,
+                autoDismiss: autoDismiss
             )
         }
 
