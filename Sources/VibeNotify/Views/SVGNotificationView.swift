@@ -18,7 +18,7 @@ public struct SVGNotificationView: View {
     public var body: some View {
         VStack(spacing: 20) {
             // SVG Content
-            SVGView(contentsOf: URL(fileURLWithPath: notification.svgPath))
+            SVGView(contentsOf: notification.svgSource.url)
                 .frame(width: notification.svgSize.width, height: notification.svgSize.height)
                 .scaleEffect(scale)
                 .opacity(opacity)

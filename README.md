@@ -99,6 +99,7 @@ VibeNotify.builder()
 ### SVG Notification
 
 ```swift
+// From local file path
 VibeNotify.builder()
     .svg(
         "/path/to/icon.svg",
@@ -111,6 +112,16 @@ VibeNotify.builder()
     .moveable(true)
     .transparent(true)
     .autoDismiss(after: 5.0, showProgress: true)
+    .show()
+
+// From URL (new!)
+VibeNotify.builder()
+    .svgURL(
+        URL(string: "https://example.com/icon.svg")!,
+        size: CGSize(width: 200, height: 200)
+    )
+    .title("Remote SVG")
+    .message("Loaded from URL")
     .show()
 ```
 
@@ -274,8 +285,15 @@ swift run
 
 - [SVGView](https://github.com/exyte/SVGView) - SVG parsing and rendering for SwiftUI
 
+## Changelog
+
+See [changelog/06112025-svg-url-support.md][changelog-svg-url] for details on the latest SVG URL support feature.
+
+[changelog-svg-url]: changelog/06112025-svg-url-support.md
+
 ## Roadmap
 
+- [x] SVG support with URL loading (remote and local)
 - [ ] Lottie animation support
 - [ ] Rive animation support
 - [ ] Sound effects

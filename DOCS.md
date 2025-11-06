@@ -357,7 +357,7 @@ VibeNotify.builder()
 
 ## SVG Support
 
-VibeNotify includes built-in SVG rendering using SVGView.
+VibeNotify includes built-in SVG rendering using SVGView, supporting both local files and remote URLs.
 
 ### SVG as Icon
 
@@ -371,7 +371,7 @@ VibeNotify.builder()
     .show()
 ```
 
-### SVG Full Notification
+### SVG Full Notification (Local File)
 
 Display an SVG as the main notification content:
 
@@ -388,6 +388,30 @@ VibeNotify.builder()
     .moveable(true)
     .transparent(true)
     .show()
+```
+
+### SVG from URL (New!)
+
+Load SVG from remote URLs:
+
+```swift
+// Using builder API
+VibeNotify.builder()
+    .svgURL(
+        URL(string: "https://example.com/icon.svg")!,
+        size: CGSize(width: 200, height: 200),
+        interactive: false
+    )
+    .title("Remote SVG")
+    .message("Loaded from URL")
+    .show()
+
+// Using direct API
+VibeNotify.shared.showSVG(
+    svgURL: URL(string: "https://example.com/icon.svg")!,
+    title: "Remote Icon",
+    message: "From CDN"
+)
 ```
 
 ### SVG with Customization
@@ -739,6 +763,24 @@ VibeNotify.builder()
     .height(400)
     .transparent(true, material: .hudWindow)
     .screenBlur(true, material: .underWindowBackground)
+    .show()
+```
+
+### Example 5: Remote SVG from CDN
+
+```swift
+VibeNotify.builder()
+    .svgURL(
+        URL(string: "https://cdn.example.com/icon.svg")!,
+        size: CGSize(width: 200, height: 200)
+    )
+    .title("Remote Resource")
+    .message("SVG loaded from CDN")
+    .position(.topRight)
+    .width(400)
+    .height(350)
+    .transparent(true)
+    .autoDismiss(after: 4.0, showProgress: true)
     .show()
 ```
 

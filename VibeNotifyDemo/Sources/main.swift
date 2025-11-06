@@ -148,6 +148,8 @@ class NotificationConfig: ObservableObject {
   @Published var mediaSize: CGSize = CGSize(width: 200, height: 200)
   @Published var useSVGNotification: Bool = false
   @Published var svgInteractive: Bool = false
+  @Published var useSVGFromURL: Bool = false
+  @Published var svgURLString: String = ""
 
   enum MediaType: String, CaseIterable {
     case svg = "SVG"
@@ -195,11 +197,23 @@ class NotificationConfig: ObservableObject {
 
   func generateCode() -> String {
     // Handle SVG full notification - use Builder API
-    if useSVGNotification, let svgPath = mediaPath, mediaType == .svg {
+    if useSVGNotification, mediaType == .svg {
       var code = "VibeNotify.builder()\n"
-      code += "  .svg(\n"
-      code += "    \"\(svgPath)\",\n"
-      code += "    size: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
+
+      if useSVGFromURL, !svgURLString.isEmpty {
+        code += "  .svgURL(\n"
+        code += "    URL(string: \"\(svgURLString)\")!,\n"
+        code += "    size: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
+      } else if let svgPath = mediaPath {
+        code += "  .svg(\n"
+        code += "    \"\(svgPath)\",\n"
+        code += "    size: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
+      } else {
+        // Fallback if no path/URL is set
+        code += "  .svg(\n"
+        code += "    \"/path/to/icon.svg\",\n"
+        code += "    size: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
+      }
 
       if svgInteractive {
         code += ",\n    interactive: true"
@@ -333,8 +347,16 @@ class NotificationConfig: ObservableObject {
     var code = "VibeNotify.builder()\n"
 
     // Handle SVG mode
-    if useSVGNotification || useCustomMedia, let path = mediaPath {
-      if useSVGNotification && mediaType == .svg {
+    if useSVGNotification && mediaType == .svg {
+      if useSVGFromURL, !svgURLString.isEmpty {
+        code += "  .svgURL(\n"
+        code += "    URL(string: \"\(svgURLString)\")!,\n"
+        code += "    size: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
+        if svgInteractive {
+          code += ",\n    interactive: true"
+        }
+        code += "\n  )\n"
+      } else if let path = mediaPath {
         code += "  .svg(\n"
         code += "    \"\(path)\",\n"
         code += "    size: CGSize(width: \(Int(mediaSize.width)), height: \(Int(mediaSize.height)))"
@@ -342,12 +364,12 @@ class NotificationConfig: ObservableObject {
           code += ",\n    interactive: true"
         }
         code += "\n  )\n"
-      } else if useCustomMedia {
-        if mediaType == .svg {
-          code += "  .icon(.svg(\"\(path)\"))\n"
-        } else {
-          code += "  .icon(.image(NSImage(contentsOfFile: \"\(path)\")!))\n"
-        }
+      }
+    } else if useCustomMedia, let path = mediaPath {
+      if mediaType == .svg {
+        code += "  .icon(.svg(\"\(path)\"))\n"
+      } else {
+        code += "  .icon(.image(NSImage(contentsOfFile: \"\(path)\")!))\n"
       }
     } else {
       code += "  .icon(.\(notificationType.rawValue.lowercased()))\n"
@@ -464,13 +486,25 @@ class NotificationConfig: ObservableObject {
   @MainActor
   func showNotification() {
     // Handle SVG full notification using Builder API
-    if useSVGNotification, let svgPath = mediaPath, mediaType == .svg {
+    if useSVGNotification, mediaType == .svg {
       let autoDismissConfig = autoDismiss
         ? StandardNotification.AutoDismiss(delay: autoDismissDelay, showProgress: showProgress)
         : nil
 
-      var builder = VibeNotify.builder()
-        .svg(svgPath, size: mediaSize, interactive: svgInteractive)
+      var builder: NotificationBuilder
+
+      if useSVGFromURL, !svgURLString.isEmpty, let url = URL(string: svgURLString) {
+        builder = VibeNotify.builder()
+          .svgURL(url, size: mediaSize, interactive: svgInteractive)
+      } else if let svgPath = mediaPath {
+        builder = VibeNotify.builder()
+          .svg(svgPath, size: mediaSize, interactive: svgInteractive)
+      } else {
+        // Fallback - show standard notification instead
+        return
+      }
+
+      builder = builder
         .title(title)
         .message(message)
         .moveable(moveable)
@@ -670,6 +704,8 @@ class NotificationConfig: ObservableObject {
     mediaType = .svg
     useSVGNotification = false
     svgInteractive = false
+    useSVGFromURL = false
+    svgURLString = ""
   }
 }
 
@@ -1365,13 +1401,53 @@ struct MediaConfig: View {
         }
         .pickerStyle(.segmented)
 
-        Button(action: selectMediaFile) {
-          HStack {
-            Image(systemName: "folder")
-            Text("Select \(config.mediaType.rawValue) File")
+        // SVG source selection (file or URL)
+        if config.useSVGNotification && config.mediaType == .svg {
+          Divider()
+
+          Text("SVG Source")
+            .font(.headline)
+
+          Picker("Source Type", selection: $config.useSVGFromURL) {
+            Text("Local File").tag(false)
+            Text("Remote URL").tag(true)
           }
+          .pickerStyle(.segmented)
         }
-        .buttonStyle(.bordered)
+
+        if config.useSVGFromURL && config.useSVGNotification && config.mediaType == .svg {
+          // URL Input
+          VStack(alignment: .leading, spacing: 8) {
+            Text("SVG URL")
+              .font(.subheadline)
+              .foregroundColor(.secondary)
+
+            TextField("https://example.com/icon.svg", text: $config.svgURLString)
+              .textFieldStyle(.roundedBorder)
+
+            if !config.svgURLString.isEmpty {
+              HStack(spacing: 4) {
+                Image(systemName: URL(string: config.svgURLString) != nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                  .foregroundColor(URL(string: config.svgURLString) != nil ? .green : .orange)
+                Text(URL(string: config.svgURLString) != nil ? "Valid URL" : "Invalid URL format")
+                  .font(.caption)
+                  .foregroundColor(.secondary)
+              }
+            }
+          }
+          .padding(8)
+          .background(Color.gray.opacity(0.05))
+          .cornerRadius(6)
+        } else if !config.useSVGFromURL || !config.useSVGNotification {
+          // File selection
+          Button(action: selectMediaFile) {
+            HStack {
+              Image(systemName: "folder")
+              Text("Select \(config.mediaType.rawValue) File")
+            }
+          }
+          .buttonStyle(.bordered)
+        }
 
         if let path = config.mediaPath {
           VStack(alignment: .leading, spacing: 8) {

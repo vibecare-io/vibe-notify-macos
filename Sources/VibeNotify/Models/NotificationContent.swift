@@ -135,15 +135,47 @@ public struct StandardNotification {
     }
 }
 
+/// SVG source type - supports both local file paths and remote URLs
+public enum SVGSource {
+    case filePath(String)
+    case url(URL)
+
+    var url: URL {
+        switch self {
+        case .filePath(let path):
+            return URL(fileURLWithPath: path)
+        case .url(let url):
+            return url
+        }
+    }
+}
+
 /// SVG-based notification content
 public struct SVGNotification {
-    public let svgPath: String
+    public let svgSource: SVGSource
     public let title: String?
     public let message: String?
     public let svgSize: CGSize
     public let interactive: Bool
     public let autoDismiss: StandardNotification.AutoDismiss?
 
+    public init(
+        svgSource: SVGSource,
+        title: String? = nil,
+        message: String? = nil,
+        svgSize: CGSize = CGSize(width: 200, height: 200),
+        interactive: Bool = false,
+        autoDismiss: StandardNotification.AutoDismiss? = nil
+    ) {
+        self.svgSource = svgSource
+        self.title = title
+        self.message = message
+        self.svgSize = svgSize
+        self.interactive = interactive
+        self.autoDismiss = autoDismiss
+    }
+
+    /// Convenience initializer for file path (backward compatibility)
     public init(
         svgPath: String,
         title: String? = nil,
@@ -152,11 +184,32 @@ public struct SVGNotification {
         interactive: Bool = false,
         autoDismiss: StandardNotification.AutoDismiss? = nil
     ) {
-        self.svgPath = svgPath
-        self.title = title
-        self.message = message
-        self.svgSize = svgSize
-        self.interactive = interactive
-        self.autoDismiss = autoDismiss
+        self.init(
+            svgSource: .filePath(svgPath),
+            title: title,
+            message: message,
+            svgSize: svgSize,
+            interactive: interactive,
+            autoDismiss: autoDismiss
+        )
+    }
+
+    /// Convenience initializer for URL
+    public init(
+        svgURL: URL,
+        title: String? = nil,
+        message: String? = nil,
+        svgSize: CGSize = CGSize(width: 200, height: 200),
+        interactive: Bool = false,
+        autoDismiss: StandardNotification.AutoDismiss? = nil
+    ) {
+        self.init(
+            svgSource: .url(svgURL),
+            title: title,
+            message: message,
+            svgSize: svgSize,
+            interactive: interactive,
+            autoDismiss: autoDismiss
+        )
     }
 }

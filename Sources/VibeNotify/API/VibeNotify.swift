@@ -69,7 +69,7 @@ public final class VibeNotify {
         return showNotification(notification, configuration: config)
     }
 
-    /// Show an SVG-based notification
+    /// Show an SVG-based notification from a file path
     @discardableResult
     public func showSVG(
         svgPath: String,
@@ -94,6 +94,61 @@ public final class VibeNotify {
     ) -> UUID {
         let notification = SVGNotification(
             svgPath: svgPath,
+            title: title,
+            message: message,
+            svgSize: svgSize,
+            interactive: interactive,
+            autoDismiss: autoDismiss
+        )
+
+        let config = OverlayWindowManager.Configuration(
+            presentationMode: presentationMode,
+            position: position,
+            width: width,
+            height: height,
+            windowLevel: windowLevel,
+            backgroundColor: .clear,
+            isTransparent: true,
+            ignoresMouseEvents: false,
+            isMoveable: moveable,
+            alwaysOnTop: alwaysOnTop,
+            transparent: transparent,
+            transparentMaterial: transparentMaterial,
+            windowOpacity: windowOpacity,
+            screenBlur: screenBlur,
+            screenBlurMaterial: screenBlurMaterial,
+            dismissOnScreenTap: dismissOnScreenTap,
+            animatePresentation: true
+        )
+
+        return showSVGNotification(notification, configuration: config)
+    }
+
+    /// Show an SVG-based notification from a URL
+    @discardableResult
+    public func showSVG(
+        svgURL: URL,
+        title: String? = nil,
+        message: String? = nil,
+        svgSize: CGSize = CGSize(width: 200, height: 200),
+        interactive: Bool = false,
+        presentationMode: OverlayWindowManager.PresentationMode = .toast(corner: .topRight, size: CGSize(width: 300, height: 400)),
+        position: OverlayWindowManager.WindowPosition? = nil,
+        width: CGFloat? = nil,
+        height: CGFloat? = nil,
+        windowLevel: OverlayWindowManager.WindowLevel = .floating,
+        moveable: Bool = false,
+        alwaysOnTop: Bool = true,
+        transparent: Bool = false,
+        transparentMaterial: NSVisualEffectView.Material = .hudWindow,
+        windowOpacity: CGFloat = 1.0,
+        screenBlur: Bool = false,
+        screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground,
+        dismissOnScreenTap: Bool = false,
+        autoDismiss: StandardNotification.AutoDismiss? = nil
+    ) -> UUID {
+        let notification = SVGNotification(
+            svgURL: svgURL,
             title: title,
             message: message,
             svgSize: svgSize,
@@ -301,6 +356,7 @@ public class NotificationBuilder {
     // SVG mode
     private var useSVG: Bool = false
     private var svgPath: String?
+    private var svgURL: URL?
     private var svgSize: CGSize = CGSize(width: 200, height: 200)
     private var svgInteractive: Bool = false
 
@@ -399,30 +455,62 @@ public class NotificationBuilder {
         return self
     }
 
+    public func svgURL(_ url: URL, size: CGSize = CGSize(width: 200, height: 200), interactive: Bool = false) -> Self {
+        self.useSVG = true
+        self.svgURL = url
+        self.svgSize = size
+        self.svgInteractive = interactive
+        return self
+    }
+
     @discardableResult
     public func show() -> UUID {
-        if useSVG, let svgPath = svgPath {
-            return VibeNotify.shared.showSVG(
-                svgPath: svgPath,
-                title: title,
-                message: message,
-                svgSize: svgSize,
-                interactive: svgInteractive,
-                presentationMode: presentationMode,
-                position: position,
-                width: width,
-                height: height,
-                windowLevel: windowLevel,
-                moveable: moveable,
-                alwaysOnTop: alwaysOnTop,
-                transparent: transparent,
-                transparentMaterial: transparentMaterial,
-                windowOpacity: windowOpacity,
-                screenBlur: screenBlur,
-                screenBlurMaterial: screenBlurMaterial,
-                dismissOnScreenTap: dismissOnScreenTap,
-                autoDismiss: autoDismiss
-            )
+        if useSVG {
+            if let svgURL = svgURL {
+                return VibeNotify.shared.showSVG(
+                    svgURL: svgURL,
+                    title: title,
+                    message: message,
+                    svgSize: svgSize,
+                    interactive: svgInteractive,
+                    presentationMode: presentationMode,
+                    position: position,
+                    width: width,
+                    height: height,
+                    windowLevel: windowLevel,
+                    moveable: moveable,
+                    alwaysOnTop: alwaysOnTop,
+                    transparent: transparent,
+                    transparentMaterial: transparentMaterial,
+                    windowOpacity: windowOpacity,
+                    screenBlur: screenBlur,
+                    screenBlurMaterial: screenBlurMaterial,
+                    dismissOnScreenTap: dismissOnScreenTap,
+                    autoDismiss: autoDismiss
+                )
+            } else if let svgPath = svgPath {
+                return VibeNotify.shared.showSVG(
+                    svgPath: svgPath,
+                    title: title,
+                    message: message,
+                    svgSize: svgSize,
+                    interactive: svgInteractive,
+                    presentationMode: presentationMode,
+                    position: position,
+                    width: width,
+                    height: height,
+                    windowLevel: windowLevel,
+                    moveable: moveable,
+                    alwaysOnTop: alwaysOnTop,
+                    transparent: transparent,
+                    transparentMaterial: transparentMaterial,
+                    windowOpacity: windowOpacity,
+                    screenBlur: screenBlur,
+                    screenBlurMaterial: screenBlurMaterial,
+                    dismissOnScreenTap: dismissOnScreenTap,
+                    autoDismiss: autoDismiss
+                )
+            }
         }
 
         return VibeNotify.shared.show(
