@@ -34,6 +34,7 @@ public final class VibeNotify {
         windowOpacity: CGFloat = 1.0,
         screenBlur: Bool = false,
         screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground,
+        screenBlurIntensity: ScreenBlurIntensity? = nil,
         dismissOnScreenTap: Bool = false,
         autoDismiss: StandardNotification.AutoDismiss? = nil
     ) -> UUID {
@@ -62,6 +63,7 @@ public final class VibeNotify {
             windowOpacity: windowOpacity,
             screenBlur: screenBlur,
             screenBlurMaterial: screenBlurMaterial,
+            screenBlurIntensity: screenBlurIntensity,
             dismissOnScreenTap: dismissOnScreenTap,
             animatePresentation: true
         )
@@ -89,6 +91,7 @@ public final class VibeNotify {
         windowOpacity: CGFloat = 1.0,
         screenBlur: Bool = false,
         screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground,
+        screenBlurIntensity: ScreenBlurIntensity? = nil,
         dismissOnScreenTap: Bool = false,
         autoDismiss: StandardNotification.AutoDismiss? = nil
     ) -> UUID {
@@ -117,6 +120,7 @@ public final class VibeNotify {
             windowOpacity: windowOpacity,
             screenBlur: screenBlur,
             screenBlurMaterial: screenBlurMaterial,
+            screenBlurIntensity: screenBlurIntensity,
             dismissOnScreenTap: dismissOnScreenTap,
             animatePresentation: true
         )
@@ -144,6 +148,7 @@ public final class VibeNotify {
         windowOpacity: CGFloat = 1.0,
         screenBlur: Bool = false,
         screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground,
+        screenBlurIntensity: ScreenBlurIntensity? = nil,
         dismissOnScreenTap: Bool = false,
         autoDismiss: StandardNotification.AutoDismiss? = nil
     ) -> UUID {
@@ -172,6 +177,7 @@ public final class VibeNotify {
             windowOpacity: windowOpacity,
             screenBlur: screenBlur,
             screenBlurMaterial: screenBlurMaterial,
+            screenBlurIntensity: screenBlurIntensity,
             dismissOnScreenTap: dismissOnScreenTap,
             animatePresentation: true
         )
@@ -350,6 +356,7 @@ public class NotificationBuilder {
     private var windowOpacity: CGFloat = 1.0
     private var screenBlur: Bool = false
     private var screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground
+    private var screenBlurIntensity: ScreenBlurIntensity?
     private var dismissOnScreenTap: Bool = false
     private var autoDismiss: StandardNotification.AutoDismiss?
 
@@ -431,9 +438,21 @@ public class NotificationBuilder {
         return self
     }
 
+    /// Enable screen blur with legacy material-based blur (NSVisualEffectView)
     public func screenBlur(_ enabled: Bool = true, material: NSVisualEffectView.Material = .underWindowBackground) -> Self {
         self.screenBlur = enabled
         self.screenBlurMaterial = material
+        self.screenBlurIntensity = nil
+        return self
+    }
+
+    /// Enable screen blur with configurable intensity (recommended)
+    /// - Parameters:
+    ///   - enabled: Whether to enable screen blur
+    ///   - intensity: The blur intensity level (.light, .medium, .heavy, or .custom(radius:))
+    public func screenBlur(_ enabled: Bool = true, intensity: ScreenBlurIntensity) -> Self {
+        self.screenBlur = enabled
+        self.screenBlurIntensity = intensity
         return self
     }
 
@@ -485,6 +504,7 @@ public class NotificationBuilder {
                     windowOpacity: windowOpacity,
                     screenBlur: screenBlur,
                     screenBlurMaterial: screenBlurMaterial,
+                    screenBlurIntensity: screenBlurIntensity,
                     dismissOnScreenTap: dismissOnScreenTap,
                     autoDismiss: autoDismiss
                 )
@@ -507,6 +527,7 @@ public class NotificationBuilder {
                     windowOpacity: windowOpacity,
                     screenBlur: screenBlur,
                     screenBlurMaterial: screenBlurMaterial,
+                    screenBlurIntensity: screenBlurIntensity,
                     dismissOnScreenTap: dismissOnScreenTap,
                     autoDismiss: autoDismiss
                 )
@@ -531,6 +552,7 @@ public class NotificationBuilder {
             windowOpacity: windowOpacity,
             screenBlur: screenBlur,
             screenBlurMaterial: screenBlurMaterial,
+            screenBlurIntensity: screenBlurIntensity,
             dismissOnScreenTap: dismissOnScreenTap,
             autoDismiss: autoDismiss
         )

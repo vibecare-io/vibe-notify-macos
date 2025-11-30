@@ -129,6 +129,9 @@ class NotificationConfig: ObservableObject {
   // Screen Blur
   @Published var screenBlur: Bool = false
   @Published var screenBlurMaterial: NSVisualEffectView.Material = .underWindowBackground
+  @Published var useIntensityBlur: Bool = true  // Use new intensity-based blur by default
+  @Published var screenBlurIntensity: ScreenBlurIntensity = .medium
+  @Published var customBlurRadius: Int = 25
   @Published var dismissOnScreenTap: Bool = false
 
   // Customization
@@ -247,10 +250,14 @@ class NotificationConfig: ObservableObject {
       }
 
       if screenBlur {
-        code += "  .screenBlur(\n"
-        code += "    true,\n"
-        code += "    material: .\(materialName(screenBlurMaterial))\n"
-        code += "  )\n"
+        if useIntensityBlur {
+          code += "  .screenBlur(true, intensity: \(intensityName(screenBlurIntensity)))\n"
+        } else {
+          code += "  .screenBlur(\n"
+          code += "    true,\n"
+          code += "    material: .\(materialName(screenBlurMaterial))\n"
+          code += "  )\n"
+        }
         if dismissOnScreenTap {
           code += "  .dismissOnScreenTap(true)\n"
         }
@@ -291,7 +298,11 @@ class NotificationConfig: ObservableObject {
 
     if screenBlur {
       code += ",\n  screenBlur: true"
-      code += ",\n  screenBlurMaterial: .\(materialName(screenBlurMaterial))"
+      if useIntensityBlur {
+        code += ",\n  screenBlurIntensity: \(intensityName(screenBlurIntensity))"
+      } else {
+        code += ",\n  screenBlurMaterial: .\(materialName(screenBlurMaterial))"
+      }
       if dismissOnScreenTap {
         code += ",\n  dismissOnScreenTap: true"
       }
@@ -456,6 +467,15 @@ class NotificationConfig: ObservableObject {
     }
   }
 
+  private func intensityName(_ intensity: ScreenBlurIntensity) -> String {
+    switch intensity {
+    case .light: return ".light"
+    case .medium: return ".medium"
+    case .heavy: return ".heavy"
+    case .custom(let radius): return ".custom(radius: \(radius))"
+    }
+  }
+
   private func positionName(_ position: OverlayWindowManager.WindowPosition) -> String {
     switch position {
     case .topLeft: return "topLeft"
@@ -510,8 +530,16 @@ class NotificationConfig: ObservableObject {
         .moveable(moveable)
         .transparent(transparent, material: transparentMaterial)
         .windowOpacity(windowOpacity)
-        .screenBlur(screenBlur, material: screenBlurMaterial)
-        .dismissOnScreenTap(dismissOnScreenTap)
+
+      // Apply screen blur with intensity or legacy material
+      if screenBlur {
+        if useIntensityBlur {
+          builder = builder.screenBlur(true, intensity: screenBlurIntensity)
+        } else {
+          builder = builder.screenBlur(true, material: screenBlurMaterial)
+        }
+      }
+      builder = builder.dismissOnScreenTap(dismissOnScreenTap)
 
       // Apply position or presentation mode
       if presentationMode == .custom {
@@ -561,6 +589,9 @@ class NotificationConfig: ObservableObject {
       iconToUse = notificationType.icon
     }
 
+    // Determine screen blur intensity
+    let blurIntensity: ScreenBlurIntensity? = (screenBlur && useIntensityBlur) ? screenBlurIntensity : nil
+
     if presentationMode == .custom {
       VibeNotify.shared.show(
         title: title,
@@ -576,6 +607,7 @@ class NotificationConfig: ObservableObject {
         windowOpacity: windowOpacity,
         screenBlur: screenBlur,
         screenBlurMaterial: screenBlurMaterial,
+        screenBlurIntensity: blurIntensity,
         dismissOnScreenTap: dismissOnScreenTap,
         autoDismiss: autoDismissConfig
       )
@@ -592,6 +624,7 @@ class NotificationConfig: ObservableObject {
         windowOpacity: windowOpacity,
         screenBlur: screenBlur,
         screenBlurMaterial: screenBlurMaterial,
+        screenBlurIntensity: blurIntensity,
         dismissOnScreenTap: dismissOnScreenTap,
         autoDismiss: autoDismissConfig
       )
@@ -1293,12 +1326,56 @@ struct ScreenBlurConfig: View {
         .font(.headline)
 
       if config.screenBlur {
-        Picker("Blur Material", selection: $config.screenBlurMaterial) {
-          Text("HUD Window").tag(NSVisualEffectView.Material.hudWindow)
-          Text("Popover").tag(NSVisualEffectView.Material.popover)
-          Text("Menu").tag(NSVisualEffectView.Material.menu)
-          Text("Under Window").tag(NSVisualEffectView.Material.underWindowBackground)
+        Divider()
+
+        Toggle("Use Intensity-Based Blur (Recommended)", isOn: $config.useIntensityBlur)
+          .help("New blur system with configurable intensity levels")
+
+        if config.useIntensityBlur {
+          Text("Blur Intensity")
+            .font(.headline)
+
+          Picker("Intensity", selection: Binding(
+            get: { intensityToSelection(config.screenBlurIntensity) },
+            set: { config.screenBlurIntensity = selectionToIntensity($0, customRadius: config.customBlurRadius) }
+          )) {
+            Text("Light (radius: 10)").tag(0)
+            Text("Medium (radius: 25)").tag(1)
+            Text("Heavy (radius: 50)").tag(2)
+            Text("Custom").tag(3)
+          }
+          .pickerStyle(.segmented)
+
+          if case .custom = config.screenBlurIntensity {
+            VStack(alignment: .leading) {
+              Text("Custom Radius: \(config.customBlurRadius)")
+                .font(.subheadline)
+              Slider(
+                value: Binding(
+                  get: { Double(config.customBlurRadius) },
+                  set: {
+                    config.customBlurRadius = Int($0)
+                    config.screenBlurIntensity = .custom(radius: Int($0))
+                  }
+                ),
+                in: 1...100,
+                step: 1
+              )
+            }
+          }
+        } else {
+          Text("Blur Material (Legacy)")
+            .font(.headline)
+
+          Picker("Material", selection: $config.screenBlurMaterial) {
+            Text("HUD Window").tag(NSVisualEffectView.Material.hudWindow)
+            Text("Popover").tag(NSVisualEffectView.Material.popover)
+            Text("Menu").tag(NSVisualEffectView.Material.menu)
+            Text("Under Window").tag(NSVisualEffectView.Material.underWindowBackground)
+          }
         }
+
+        Divider()
 
         Toggle("Dismiss on Screen Tap", isOn: $config.dismissOnScreenTap)
       }
@@ -1314,6 +1391,24 @@ struct ScreenBlurConfig: View {
     }
     .onAppear {
       config.presentationMode = .custom
+    }
+  }
+
+  private func intensityToSelection(_ intensity: ScreenBlurIntensity) -> Int {
+    switch intensity {
+    case .light: return 0
+    case .medium: return 1
+    case .heavy: return 2
+    case .custom: return 3
+    }
+  }
+
+  private func selectionToIntensity(_ selection: Int, customRadius: Int) -> ScreenBlurIntensity {
+    switch selection {
+    case 0: return .light
+    case 1: return .medium
+    case 2: return .heavy
+    default: return .custom(radius: customRadius)
     }
   }
 }

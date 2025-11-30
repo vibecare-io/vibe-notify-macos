@@ -127,6 +127,7 @@ VibeNotify.builder()
 ### Builder with Screen Blur
 
 ```swift
+// Using intensity-based blur (recommended)
 VibeNotify.builder()
     .title("Focus Mode")
     .message("Screen is blurred for focus")
@@ -134,11 +135,22 @@ VibeNotify.builder()
     .position(.center)
     .width(500)
     .height(250)
-    .screenBlur(
-        true,
-        material: .underWindowBackground
-    )
+    .screenBlur(true, intensity: .medium)
     .dismissOnScreenTap(true)
+    .show()
+
+// Using custom blur radius
+VibeNotify.builder()
+    .title("Custom Blur")
+    .message("Fine-tuned blur intensity")
+    .screenBlur(true, intensity: .custom(radius: 15))
+    .show()
+
+// Legacy material-based blur (still supported)
+VibeNotify.builder()
+    .title("Legacy Blur")
+    .message("Using NSVisualEffectView materials")
+    .screenBlur(true, material: .underWindowBackground)
     .show()
 ```
 
@@ -306,6 +318,7 @@ VibeNotify.builder()
 Blur the **entire screen** behind the notification for maximum focus:
 
 ```swift
+// Recommended: Use intensity presets
 VibeNotify.builder()
     .title("Focus Mode")
     .message("Everything else is blurred")
@@ -313,12 +326,29 @@ VibeNotify.builder()
     .position(.center)
     .width(500)
     .height(250)
-    .screenBlur(
-        true,
-        material: .underWindowBackground
-    )
+    .screenBlur(true, intensity: .medium)
     .dismissOnScreenTap(true)
     .show()
+```
+
+**Blur Intensity Levels:**
+
+| Preset | Radius | Use Case |
+|--------|--------|----------|
+| `.light` | 10 | Subtle blur, content still partially visible |
+| `.medium` | 25 | Balanced blur, good for most notifications |
+| `.heavy` | 50 | Strong blur, draws full attention |
+| `.custom(radius:)` | 0-100 | Fine-grained control |
+
+```swift
+// Light blur - subtle background effect
+.screenBlur(true, intensity: .light)
+
+// Heavy blur - maximum focus
+.screenBlur(true, intensity: .heavy)
+
+// Custom radius for precise control
+.screenBlur(true, intensity: .custom(radius: 35))
 ```
 
 **Difference:**
@@ -601,6 +631,13 @@ All builder methods return `self` for chaining:
 
 .windowOpacity(_ opacity: CGFloat) -> Self
 
+// Intensity-based blur (recommended)
+.screenBlur(
+    _ enabled: Bool = true,
+    intensity: ScreenBlurIntensity
+) -> Self
+
+// Legacy material-based blur
 .screenBlur(
     _ enabled: Bool = true,
     material: NSVisualEffectView.Material = .underWindowBackground
@@ -664,6 +701,15 @@ VibeNotify.shared.info(
 .icon(.system("star.fill"))                  // Any SF Symbol
 .icon(.image(NSImage(named: "icon")!))       // Custom NSImage
 .icon(.svg("/path/to/icon.svg"))             // SVG file
+```
+
+### Screen Blur Intensity
+
+```swift
+.light                    // radius: 10 - subtle blur
+.medium                   // radius: 25 - balanced (default)
+.heavy                    // radius: 50 - strong blur
+.custom(radius: Int)      // radius: 0-100 - custom value
 ```
 
 ### Window Positions
@@ -762,7 +808,7 @@ VibeNotify.builder()
     .width(500)
     .height(400)
     .transparent(true, material: .hudWindow)
-    .screenBlur(true, material: .underWindowBackground)
+    .screenBlur(true, intensity: .medium)
     .show()
 ```
 
@@ -810,10 +856,25 @@ VibeNotify.builder()
     .position(.center)
     .width(500)
     .height(250)
-    .screenBlur(true, material: .underWindowBackground)
+    .screenBlur(true, intensity: .heavy)
     .dismissOnScreenTap(true)
     .transparent(true, material: .hudWindow)
     .windowOpacity(0.95)
+    .show()
+```
+
+### Example 7: Light Blur Overlay
+
+```swift
+VibeNotify.builder()
+    .title("Quick Tip")
+    .message("Background is subtly blurred")
+    .icon(.info)
+    .position(.center)
+    .width(400)
+    .height(200)
+    .screenBlur(true, intensity: .light)
+    .autoDismiss(after: 4.0, showProgress: true)
     .show()
 ```
 
