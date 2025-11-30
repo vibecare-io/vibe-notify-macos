@@ -10,7 +10,7 @@ A lightweight, customizable notification overlay library for macOS built with Sw
 - 🎨 **Multiple Presentation Modes**: Full-screen, banner, toast, and 9-position layouts
 - 🎭 **SwiftDialog-Inspired API**: Familiar configuration options for macOS administrators
 - 🎬 **Built-in Animations**: Smooth SwiftUI transitions and spring animations
-- 🖼️ **SVG Support**: Full SVG rendering with SVGView - icons and full notifications
+- 🖼️ **SVG Support**: Full SVG rendering with SVGView - adaptive glow/shadow follows system theme
 - 🔧 **Extensible Architecture**: Protocol-based design ready for Lottie/Rive integration
 - 🪟 **Advanced Window Management**: Always-on-top overlays with customizable levels
 - 🎯 **Builder API**: Declarative, chainable builder pattern for easy configuration
