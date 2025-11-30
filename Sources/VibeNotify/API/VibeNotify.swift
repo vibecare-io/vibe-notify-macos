@@ -318,7 +318,10 @@ public final class VibeNotify {
         let id = UUID()
 
         windowManager.show(id: id, configuration: configuration) {
-            SVGNotificationView(notification: notification) { [weak self] in
+            SVGNotificationView(
+                notification: notification,
+                screenBlurActive: configuration.screenBlur
+            ) { [weak self] in
                 self?.dismiss(id: id)
             }
         }

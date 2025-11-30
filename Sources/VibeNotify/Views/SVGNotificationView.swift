@@ -5,13 +5,27 @@ import SVGView
 public struct SVGNotificationView: View {
     let notification: SVGNotification
     let onDismiss: () -> Void
+    let screenBlurActive: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var scale: CGFloat = 0.8
     @State private var opacity: Double = 0.0
     @State private var progress: Double = 1.0
 
-    public init(notification: SVGNotification, onDismiss: @escaping () -> Void) {
+    /// Determines if light text should be used based on system theme
+    private var useLightText: Bool {
+        // Follow system theme: dark mode = light text, light mode = dark text
+        colorScheme == .dark
+    }
+
+    public init(
+        notification: SVGNotification,
+        screenBlurActive: Bool = false,
+        onDismiss: @escaping () -> Void
+    ) {
         self.notification = notification
+        self.screenBlurActive = screenBlurActive
         self.onDismiss = onDismiss
     }
 
@@ -28,6 +42,8 @@ public struct SVGNotificationView: View {
                 Text(title)
                     .font(.title2)
                     .fontWeight(.semibold)
+                    .foregroundColor(useLightText ? .white : .primary)
+                    .shadow(color: useLightText ? .white.opacity(0.3) : .clear, radius: 4, x: 0, y: 0)
                     .multilineTextAlignment(.center)
             }
 
@@ -35,7 +51,8 @@ public struct SVGNotificationView: View {
             if let message = notification.message {
                 Text(message)
                     .font(.body)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(useLightText ? .white.opacity(0.9) : .secondary)
+                    .shadow(color: useLightText ? .white.opacity(0.2) : .clear, radius: 3, x: 0, y: 0)
                     .multilineTextAlignment(.center)
             }
 
