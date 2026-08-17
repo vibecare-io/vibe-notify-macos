@@ -37,6 +37,17 @@ public class OverlayWindowManager {
   /// the only place from which a timer can actually be *cancelled* when any of
   /// those fire. See `NotificationClock`.
   var clocks: [UUID: NotificationClock] = [:]
+  /// Per-id completion hooks registered by
+  /// `show(id:configuration:countdown:onEnd:content:)`, fired from exactly
+  /// one place: `dismiss(id:)`, the single funnel every dismissal path
+  /// (button, ESC, click-away, `dismissAll`, and a clock reaching its own
+  /// end) already goes through. That last path is why this exists at all —
+  /// a clock that reaches its deadline calls `dismiss(id:)` directly from
+  /// `clockDidEnd`, never the caller-supplied `onDismiss` closure baked into
+  /// the hosted content, so a caller had no way to learn an overlay had
+  /// closed itself. Deliberately `private`: nothing outside `dismiss(id:)`
+  /// should read or fire these.
+  private var endHandlers: [UUID: (NotificationClock.Phase?) -> Void] = [:]
 
   // MARK: - Window Level Presets
   public enum WindowLevel {
@@ -189,8 +200,17 @@ public class OverlayWindowManager {
     id: UUID = UUID(),
     configuration: Configuration = Configuration(),
     countdown: Countdown? = nil,
+    onEnd: ((UUID, NotificationClock.Phase?) -> Void)? = nil,
     @ViewBuilder content: () -> Content
   ) -> UUID {
+    // Stale entry from a recycled id, same reasoning as the `clocks` removal
+    // just below: without this a handler registered by a *previous* show for
+    // this id would fire when the fresh one closes.
+    endHandlers.removeValue(forKey: id)
+    if let onEnd {
+      endHandlers[id] = { phase in onEnd(id, phase) }
+    }
+
     // Create blur background window if needed
     if configuration.screenBlur {
       let blurWindow = createBlurWindow(configuration: configuration, notificationId: id)
@@ -267,9 +287,15 @@ public class OverlayWindowManager {
     // (button, ESC, click-away, `dismissAll`) funnels through here, so this single
     // line is what makes a countdown cancellable at all. Below the guard it would
     // leak a repeating timer for any id whose main window is already gone.
-    cancelClock(id: id)
+    let terminalPhase = cancelClock(id: id)
     dismissBlurWindow(id: id, animated: animated)
     sweepOrphanedBlurWindows(excluding: id)
+
+    // Fired unconditionally — even when there is no main window left for
+    // this id (a stray `dismiss(id:)` for an id already torn down) — because
+    // a caller that registered this handler is asking "did this id end?",
+    // not "was there still a window?".
+    endHandlers.removeValue(forKey: id)?(terminalPhase)
 
     guard let window = activeWindows[id] else { return }
 
@@ -289,11 +315,24 @@ public class OverlayWindowManager {
     }
   }
 
-  /// Stops and releases the clock for `id`, if any. Silent: `invalidate()` does not
-  /// call back into `clockDidEnd`, because we are already inside the dismissal it
-  /// would ask for.
-  private func cancelClock(id: UUID) {
-    clocks.removeValue(forKey: id)?.invalidate()
+  /// Stops and releases the clock for `id`, if any, and returns the phase it
+  /// ended in. Silent: `invalidate()` does not call back into `clockDidEnd`,
+  /// because we are already inside the dismissal it would ask for.
+  ///
+  /// The returned phase is already terminal by construction. When this runs
+  /// as part of `clockDidEnd`'s own call to `dismiss(id:)`, the clock set its
+  /// phase to `.finished` or `.cancelled` *before* invoking `onEnd` (see
+  /// `NotificationClock.terminate(_:notify:)`), so `invalidate()`'s own
+  /// `terminate(.cancelled, ...)` here finds the phase already terminal and
+  /// leaves it alone — `.finished` survives. When `dismiss(id:)` instead runs
+  /// first (ESC, a button, click-away, while the clock was still ticking),
+  /// `invalidate()` is what makes it terminal, and it lands on `.cancelled`.
+  /// Either way, this is the terminal phase, not a stale mid-flight one.
+  @discardableResult
+  private func cancelClock(id: UUID) -> NotificationClock.Phase? {
+    guard let clock = clocks.removeValue(forKey: id) else { return nil }
+    clock.invalidate()
+    return clock.phase
   }
 
   /// A clock reached its end on its own (`.finished`, or a task whose deadline

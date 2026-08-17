@@ -3,17 +3,21 @@ import SwiftUI
 import VibeNotify
 
 /// Where every configuration this harness can drive is assembled, and the one
-/// place that actually calls into `OverlayWindowManager`.
+/// place that actually calls into `VibeNotify`.
 ///
-/// `VibeNotify.shared` (the `show`/`showSVG` convenience API) has no entry
-/// point for `RichNotification` at all — there is no `showRich`. That is not a
-/// gap this file works around; it is presenting the rich renderer exactly the
-/// way its own tests do (`Tests/VibeNotifyTests/LegibilityTests.swift`): build
-/// a `RichNotificationView` and hand it to `OverlayWindowManager.show(id:
-/// configuration:countdown:content:)` directly. Both of those are public API,
-/// so nothing here is reaching past what a real caller could do — it is worth
-/// flagging in the report as the one piece of friction, since a plugin author
-/// wiring up a real eye-break reminder would hit the same absence.
+/// Task 9 added the entry point this file used to have to work around:
+/// `VibeNotify.shared.showRich(_:configuration:reduceMotion:reduceTransparency:onEnd:)`.
+/// Before it existed, presenting a `RichNotification` meant reaching past
+/// `VibeNotify` entirely and calling `OverlayWindowManager.show(id:
+/// configuration:countdown:content:)` directly — public API, so not a defect
+/// exactly, but real friction any other caller of this library would hit the
+/// same way. `present(_:configuration:reduceMotion:reduceTransparency:)` below
+/// is now a thin wrapper over `showRich`, and its `onEnd` closure is what lets
+/// `activeIDs` stay accurate for a countdown that closes its own window —
+/// previously worked around here by predicting the countdown's lifetime and
+/// sweeping `activeIDs` after a `DispatchQueue.main.asyncAfter`, which is
+/// exactly the kind of bookkeeping a real caller should not have to
+/// reimplement.
 @MainActor
 final class RichDemoPresenter: ObservableObject {
 
@@ -21,7 +25,6 @@ final class RichDemoPresenter: ObservableObject {
   /// show a live count and offer "Dismiss All".
   @Published private(set) var activeIDs: [UUID] = []
 
-  private let manager = OverlayWindowManager.shared
 
   // MARK: - Illustration assets
 
@@ -149,17 +152,26 @@ final class RichDemoPresenter: ObservableObject {
     reduceMotion: Bool?,
     reduceTransparency: Bool?
   ) -> UUID {
-    let id = UUID()
     let windowsBeforeShow = Set(NSApp.windows.map(ObjectIdentifier.init))
 
-    manager.show(id: id, configuration: configuration, countdown: notification.countdown) { [weak self] in
-      RichNotificationView(
-        notification: notification,
-        reduceMotion: reduceMotion,
-        reduceTransparency: reduceTransparency
-      ) {
-        self?.dismiss(id: id)
-      }
+    // `id` is reassigned from `showRich`'s return value immediately below;
+    // the placeholder only exists so the `onEnd` closure — which cannot run
+    // until at least the next run-loop turn, since it fires from a dismissal
+    // and nothing dismisses synchronously inside `showRich` itself — has a
+    // variable to close over. By the time it can possibly run, `id` already
+    // holds the real value.
+    var id = UUID()
+    id = VibeNotify.shared.showRich(
+      notification,
+      configuration: configuration,
+      reduceMotion: reduceMotion,
+      reduceTransparency: reduceTransparency
+    ) { [weak self] _ in
+      // Fires however this overlay ended — a button, ESC, click-away, or the
+      // countdown reaching its own end — which is what makes `activeIDs`
+      // accurate without the lifetime-prediction workaround this used to
+      // need (see the type's doc comment).
+      self?.activeIDs.removeAll { $0 == id }
     }
     activeIDs.append(id)
 
@@ -176,22 +188,6 @@ final class RichDemoPresenter: ObservableObject {
         correctConstrainedFrame(
           newlyCreatedAmong: windowsBeforeShow, position: position,
           size: CGSize(width: width, height: height), screen: screen)
-      }
-    }
-
-    // A clock that reaches its own deadline closes the window through
-    // `OverlayWindowManager.clockDidEnd` directly — that path never calls the
-    // `onDismiss` closure above, which only fires for the *user*-driven exits
-    // (click-away, ESC, a button). There is no public signal on this library
-    // for "an overlay closed itself" (`OverlayWindowManager.activeWindows` is
-    // `internal`, reachable only via `@testable import`), so the only way
-    // this counter stays honest for a countdown that simply ran out is to
-    // predict its own lifetime and sweep after it — worth flagging in the
-    // report as a real gap a production caller doing the same bookkeeping
-    // would also hit.
-    if let lifetime = Self.expectedLifetime(of: notification) {
-      DispatchQueue.main.asyncAfter(deadline: .now() + lifetime + 0.5) { [weak self] in
-        self?.activeIDs.removeAll { $0 == id }
       }
     }
 
@@ -280,26 +276,13 @@ final class RichDemoPresenter: ObservableObject {
     return CGRect(x: x, y: y, width: size.width, height: size.height)
   }
 
-  /// Mirrors `NotificationClock`'s own phase arithmetic
-  /// (`endTaskPhase(at:completed:)`) purely to predict when an unattended
-  /// countdown will close its window on its own. `nil` when there is no
-  /// countdown at all — such an overlay never self-dismisses, so only
-  /// `dismiss(id:)` ever removes it.
-  private static func expectedLifetime(of notification: RichNotification) -> TimeInterval? {
-    guard let countdown = notification.countdown else { return nil }
-    let taskDuration = countdown.task?.duration ?? 0
-    let dismissDelay =
-      countdown.autoDismiss?.delay ?? (countdown.task != nil ? NotificationClock.completionHold : 0)
-    return taskDuration + dismissDelay
-  }
-
   func dismiss(id: UUID) {
-    manager.dismiss(id: id)
+    VibeNotify.shared.dismiss(id: id)
     activeIDs.removeAll { $0 == id }
   }
 
   func dismissAll() {
-    manager.dismissAll()
+    VibeNotify.shared.dismissAll()
     activeIDs.removeAll()
   }
 }

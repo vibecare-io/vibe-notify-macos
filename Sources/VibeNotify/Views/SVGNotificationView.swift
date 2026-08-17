@@ -2,6 +2,7 @@ import SVGView
 import SwiftUI
 
 /// SwiftUI view for SVG-based notifications
+@available(*, deprecated, message: "Use RichNotification and RichNotificationView — see Legibility.swift for why this view's colorScheme-driven text colour is unreliable.")
 public struct SVGNotificationView: View {
   let notification: SVGNotification
   let onDismiss: () -> Void

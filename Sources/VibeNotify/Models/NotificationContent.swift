@@ -221,6 +221,13 @@ public enum SVGSource {
 }
 
 /// SVG-based notification content
+///
+/// Deprecated rather than removed — the `RichNotification`/`RichNotificationView`
+/// pair added alongside it draws the same illustration kinds plus buttons and
+/// a footnote, which this type has no property for at all. That gap is what
+/// made `showSVG(...).button(...)` compile while silently discarding every
+/// button: nothing here could have accepted one. Removal is a 1.0 concern.
+@available(*, deprecated, message: "Use RichNotification and VibeNotify.showRich(_:configuration:) — SVGNotification cannot express buttons or a footnote.")
 public struct SVGNotification {
     public let svgSource: SVGSource
     public let title: String?
