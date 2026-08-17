@@ -108,6 +108,15 @@ public class OverlayWindowManager {
     /// `createBlurWindow`), and the ceiling stops short of a fully opaque backdrop,
     /// which would no longer read as a blur.
     public let screenDim: Double
+    /// Whether `show()` requests key status for the content window on presentation
+    /// (`makeKeyAndOrderFront`) or only orders it front without seizing focus
+    /// (`orderFront`). Defaults to `true`, matching every behavior before this
+    /// property existed. `.ambient` sets this `false`: a toast that steals focus
+    /// mid-keystroke is exactly the failure that mode exists to avoid. The window
+    /// stays key-*capable* either way (`DismissibleWindow.canBecomeKey` is untouched),
+    /// so clicking it can still make it key and ESC still dismisses it — what this
+    /// controls is only whether focus is seized unprompted on show.
+    public let takesKeyFocus: Bool
 
     public init(
       presentationMode: PresentationMode = .fullScreen,
@@ -129,7 +138,8 @@ public class OverlayWindowManager {
       dismissOnScreenTap: Bool = false,
       animatePresentation: Bool = true,
       screen: NSScreen? = nil,
-      screenDim: Double = 0.1
+      screenDim: Double = 0.1,
+      takesKeyFocus: Bool = true
     ) {
       self.presentationMode = presentationMode
       self.position = position
@@ -151,6 +161,7 @@ public class OverlayWindowManager {
       self.animatePresentation = animatePresentation
       self.screen = screen
       self.screenDim = min(max(screenDim, 0.1), 0.95)
+      self.takesKeyFocus = takesKeyFocus
     }
   }
 
@@ -194,9 +205,13 @@ public class OverlayWindowManager {
 
     // Animate if needed
     if configuration.animatePresentation {
-      animateShow(window: window, targetOpacity: configuration.windowOpacity)
-    } else {
+      animateShow(
+        window: window, targetOpacity: configuration.windowOpacity,
+        takesKeyFocus: configuration.takesKeyFocus)
+    } else if configuration.takesKeyFocus {
       window.makeKeyAndOrderFront(nil)
+    } else {
+      window.orderFront(nil)
     }
 
     return id
@@ -458,9 +473,13 @@ public class OverlayWindowManager {
     return CGRect(x: x, y: y, width: size.width, height: size.height)
   }
 
-  private func animateShow(window: NSWindow, targetOpacity: CGFloat = 1.0) {
+  private func animateShow(window: NSWindow, targetOpacity: CGFloat = 1.0, takesKeyFocus: Bool = true) {
     window.alphaValue = 0
-    window.makeKeyAndOrderFront(nil)
+    if takesKeyFocus {
+      window.makeKeyAndOrderFront(nil)
+    } else {
+      window.orderFront(nil)
+    }
 
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.3
