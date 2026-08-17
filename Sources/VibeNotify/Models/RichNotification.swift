@@ -166,10 +166,18 @@ public struct RichNotification {
     didCompleteTask: Bool,
     completedEarly: Bool
   ) -> CompletionState {
-    guard let taskTimer, didCompleteTask, phase != .task, phase != .cancelled else { return .none }
+    // `effectiveTaskTimer`, not the stored `taskTimer`. Unreachable today —
+    // an `.ambient` alert gets no task phase, so `didCompleteTask` cannot
+    // become true for one — but the two accessors have already diverged once,
+    // and reading the wrong one here is precisely how an ambient toast would
+    // come to announce "Break complete" for a break that was never offered.
+    // The completion rules exist to stop the surface saying things that are
+    // not true; they should not depend on a second property staying in sync.
+    guard let timer = effectiveTaskTimer, didCompleteTask, phase != .task, phase != .cancelled
+    else { return .none }
     return completedEarly
       ? .acknowledged(label: acknowledgementLabel)
-      : .completed(label: taskTimer.completionLabel)
+      : .completed(label: timer.completionLabel)
   }
 
   /// The three things the centre of the ring can say after the task phase.

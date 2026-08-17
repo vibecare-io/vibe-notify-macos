@@ -419,14 +419,25 @@ struct LegibilityTests {
 @MainActor
 struct RichRendererPixelTests {
 
-  /// What a rendered surface is made of. All counts are pixels.
-  struct Pixels {
-    var total = 0
+  /// What a rendered surface is made of.
+  ///
+  /// **All areas are in square *points*, not pixels.** Every count is divided
+  /// by the square of the backing scale factor actually used for the render, so
+  /// a threshold written here means the same thing on a 2x Retina display, a 1x
+  /// external monitor and a headless CI machine. Before this normalisation the
+  /// ring assertion passed with a margin of 4267 against a threshold of 2000 on
+  /// a 2x machine and would have failed at 1067 on a 1x one — a suite that
+  /// breaks on other people's hardware, which is worse than no suite.
+  struct Areas {
+    /// Backing scale actually used, reported so a failure message can say
+    /// whether the harness rendered at the resolution it expected.
+    var scale: Double = 1
+    var total = 0.0
     /// Alpha > 0.5 — a genuinely solid pixel.
-    var opaque = 0
+    var opaque = 0.0
     /// Alpha > 0.3 — anything drawn firmly enough to read as content rather
     /// than as the tail of a gradient or a shadow.
-    var ink = 0
+    var ink = 0.0
     /// `ink` that is also light (luminance > 0.85).
     ///
     /// The alpha floor is 0.3 rather than 0.9 deliberately: the palette's
@@ -434,16 +445,19 @@ struct RichRendererPixelTests {
     /// so a stricter floor would score correct light text as absent. What is
     /// being distinguished here is *light versus dark*, not opaque versus
     /// translucent.
-    var light = 0
-    /// Dark *and* partially transparent: with light content on nothing, the
-    /// only thing that produces these is a drop shadow. Antialiased edges of
-    /// white glyphs are light, not dark.
-    var darkHalo = 0
+    var light = 0.0
+    /// Light *and* essentially opaque (alpha > 0.9). Distinguishes a solid
+    /// light fill from a translucent one — `white.opacity(0.55)` scores as
+    /// `light` but not as this.
+    var solidLight = 0.0
+    /// Dark *and* partially transparent. Given light content over nothing, the
+    /// only thing that produces these is a drop shadow.
+    var darkHalo = 0.0
     /// Total ink laid down, however faint. A scrim moves this a lot.
     var alphaSum = 0.0
 
-    var lightFraction: Double { ink == 0 ? 0 : Double(light) / Double(ink) }
-    var opaqueFraction: Double { total == 0 ? 0 : Double(opaque) / Double(total) }
+    var lightFraction: Double { ink == 0 ? 0 : light / ink }
+    var opaqueFraction: Double { total == 0 ? 0 : opaque / total }
   }
 
   /// Renders at a fixed size with the system appearance **forced to light**.
@@ -459,7 +473,7 @@ struct RichRendererPixelTests {
     reduceTransparency: Bool = false,
     reduceMotion: Bool = true,
     clock: NotificationClock? = nil
-  ) -> Pixels {
+  ) -> Areas {
     let host = NSHostingView(
       rootView: RichNotificationView(
         notification: notification,
@@ -471,12 +485,19 @@ struct RichRendererPixelTests {
     host.frame = CGRect(origin: .zero, size: size)
     host.layoutSubtreeIfNeeded()
 
-    var pixels = Pixels()
+    var areas = Areas()
     guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
       Issue.record("the host view produced no bitmap representation")
-      return pixels
+      return areas
     }
     host.cacheDisplay(in: host.bounds, to: rep)
+
+    // Measured from the representation rather than assumed: the harness must
+    // not care whether it is running on Retina, on a 1x external display, or
+    // headless.
+    let scale = host.bounds.width > 0 ? Double(rep.pixelsWide) / Double(host.bounds.width) : 1
+    let perPixelArea = scale > 0 ? 1 / (scale * scale) : 1
+    areas.scale = scale
 
     for x in 0..<rep.pixelsWide {
       for y in 0..<rep.pixelsHigh {
@@ -485,19 +506,31 @@ struct RichRendererPixelTests {
         let l =
           0.2126 * Double(colour.redComponent) + 0.7152 * Double(colour.greenComponent)
           + 0.0722 * Double(colour.blueComponent)
-        pixels.total += 1
-        pixels.alphaSum += a
-        if a > 0.5 { pixels.opaque += 1 }
-        if a > 0.3 { pixels.ink += 1 }
-        if a > 0.3 && l > 0.85 { pixels.light += 1 }
-        if a > 0.02 && a < 0.5 && l < 0.3 { pixels.darkHalo += 1 }
+        areas.total += perPixelArea
+        areas.alphaSum += a * perPixelArea
+        if a > 0.5 { areas.opaque += perPixelArea }
+        if a > 0.3 { areas.ink += perPixelArea }
+        if a > 0.3 && l > 0.85 { areas.light += perPixelArea }
+        if a > 0.9 && l > 0.85 { areas.solidLight += perPixelArea }
+        if a > 0.02 && a < 0.5 && l < 0.3 { areas.darkHalo += perPixelArea }
       }
     }
-    return pixels
+    return areas
   }
 
   private func clock(_ countdown: Countdown) -> NotificationClock? {
     NotificationClock(id: UUID(), countdown: countdown)
+  }
+
+  /// A clock advanced `elapsed` seconds into its first phase, via the injected
+  /// date seam rather than by sleeping.
+  private func clock(_ countdown: Countdown, elapsed: TimeInterval) -> NotificationClock? {
+    let start = Date()
+    var now = start
+    let clock = NotificationClock(id: UUID(), countdown: countdown, currentDate: { now })
+    now = start.addingTimeInterval(elapsed)
+    clock?.tick()
+    return clock
   }
 
   private func timer(_ duration: TimeInterval = 20) -> TaskTimer {
@@ -519,32 +552,46 @@ struct RichRendererPixelTests {
       RichNotification(message: "Focus on something twenty feet away", mode: .interrupt),
       RichNotification(footnote: "Press ESC or click anywhere to skip", mode: .interrupt),
     ] {
-      let pixels = render(notification)
-      #expect(pixels.ink > 200, "expected visible text, got \(pixels.ink) inked pixels")
+      let areas = render(notification)
+      #expect(areas.ink > 50, "expected visible text, got \(areas.ink)pt² of ink")
       #expect(
-        pixels.lightFraction > 0.5,
-        "text must render light against an unknown desktop; light fraction was \(pixels.lightFraction)"
+        areas.lightFraction > 0.5,
+        "text must render light against an unknown desktop; light fraction was \(areas.lightFraction)"
       )
     }
   }
 
   /// Every text slot casts a **dark** shadow.
   ///
-  /// With light content over nothing, dark semi-transparent pixels can only be
-  /// a drop shadow — a white glyph's antialiased edge is light. `color: .clear`
-  /// (the shipped bug at `SVGNotificationView.swift:47`) drives this to zero;
-  /// so does a white glow, which is the *other* half of that bug, because the
-  /// halo it produces is light rather than dark.
+  /// **This metric has a precondition, and the test enforces it rather than
+  /// assuming it.** `darkHalo` counts dark semi-transparent pixels, which is a
+  /// proxy for "there is a drop shadow" only *given that the text itself is
+  /// light*. Black glyphs satisfy the metric all by themselves through their
+  /// own antialiased edges — which is not hypothetical: applying the
+  /// `.foregroundColor(.primary)` and `color: .clear` mutations together left
+  /// this test green, because the black text the first mutation produced
+  /// supplied the dark pixels the second one removed. The two masked each
+  /// other.
+  ///
+  /// So the light-text precondition is asserted here, in the test that depends
+  /// on it, rather than being borrowed from `everyTextSlotRendersLight`. With
+  /// both assertions in one test neither mutation can hide behind the other.
   @Test func everyTextSlotCastsADarkShadow() {
     for notification in [
       RichNotification(title: "Look away now", mode: .interrupt),
       RichNotification(message: "Focus on something twenty feet away", mode: .interrupt),
       RichNotification(footnote: "Press ESC or click anywhere to skip", mode: .interrupt),
     ] {
-      let pixels = render(notification)
+      let areas = render(notification)
+
+      // The precondition. Without it, `darkHalo` below means nothing.
       #expect(
-        pixels.darkHalo > 500,
-        "a .clear shadow is not a shadow and a light glow is not one either; dark halo was \(pixels.darkHalo)"
+        areas.lightFraction > 0.5,
+        "darkHalo only measures a shadow when the text is light; light fraction was \(areas.lightFraction)"
+      )
+      #expect(
+        areas.darkHalo > 125,
+        "a .clear shadow is not a shadow and a light glow is not one either; dark halo was \(areas.darkHalo)pt²"
       )
     }
   }
@@ -607,17 +654,17 @@ struct RichRendererPixelTests {
   /// `PrimaryButtonStyle` fills with `Color.accentColor` and puts a white label
   /// on it, which inverts that ratio.
   @Test func buttonsUseTheChromeLessStyleNotTheCardChrome() {
-    let pixels = render(
+    let areas = render(
       RichNotification(
         buttons: [.init(title: "Done", style: .primary, action: {})], mode: .interrupt),
       size: CGSize(width: 300, height: 120))
 
-    #expect(pixels.opaque > 500, "expected a visible button")
+    #expect(areas.opaque > 125, "expected a visible button")
     #expect(
-      pixels.lightFraction > 0.5,
+      areas.lightFraction > 0.5,
       """
       the primary button must be an opaque light fill that survives a blurred light desktop, \
-      not a flat accent fill; light fraction was \(pixels.lightFraction)
+      not a flat accent fill; light fraction was \(areas.lightFraction)
       """)
   }
 
@@ -687,76 +734,149 @@ struct RichRendererPixelTests {
   /// `DismissIndicatorView` bodies are evaluated by the suite at all. Without
   /// one, `RichNotificationView.countdown` renders nothing and three of the six
   /// new views never run outside a human's screen.
-  @Test func theCountdownChildrenMountAndOccupySpace() throws {
-    let ringed = try #require(clock(Countdown(task: timer(), autoDismiss: nil)))
+  ///
+  /// The ring's clock is driven to the **half-way point** through the injected
+  /// date seam. At t=0 `steppedArc(.task, 20, 20)` is 0, so the arc draws
+  /// nothing and the measured delta would be almost entirely the 46pt numeral —
+  /// which is not what a test called "the ring draws" should be measuring. At
+  /// t=10 the arc is half-drawn and genuinely participates.
+  @Test func theRingAndTheDismissBarBothDraw() throws {
+    let halfDrained = try #require(
+      clock(Countdown(task: timer(), autoDismiss: nil), elapsed: 10))
     let barred = try #require(
       clock(Countdown(task: nil, autoDismiss: .init(delay: 5, indicator: .bar))))
+    let size = CGSize(width: 400, height: 400)
 
     let withRing = render(
       RichNotification(title: "Break", taskTimer: timer(), mode: .interrupt),
-      size: CGSize(width: 400, height: 400), clock: ringed)
+      size: size, clock: halfDrained)
     let withBar = render(
       RichNotification(
         title: "Break", autoDismiss: .init(delay: 5, indicator: .bar), mode: .interrupt),
-      size: CGSize(width: 400, height: 400), clock: barred)
+      size: size, clock: barred)
     let withNeither = render(
-      RichNotification(title: "Break", mode: .interrupt),
-      size: CGSize(width: 400, height: 400))
+      RichNotification(title: "Break", mode: .interrupt), size: size)
+
+    // Sanity: the clock really is mid-drain, so the arc is actually on screen.
+    #expect(halfDrained.phase == .task)
+    #expect(
+      CountdownRing.steppedArc(
+        phase: halfDrained.phase, secondsRemaining: 10, duration: 20) == 0.5)
 
     #expect(
-      withRing.opaque > withNeither.opaque + 2000,
-      "the ring, its ticks and its numeral must all draw: \(withRing.opaque) vs \(withNeither.opaque)"
+      withRing.opaque > withNeither.opaque + 500,
+      "the ring, its ticks, its arc and its numeral must all draw: \(withRing.opaque) vs \(withNeither.opaque)"
     )
     #expect(
       withBar.opaque > withNeither.opaque,
       "the dismiss bar must draw: \(withBar.opaque) vs \(withNeither.opaque)")
   }
 
+  // MARK: - The ambient countdown
+
+  /// The gap that let the entire ambient-contrast fix be reverted with all 80
+  /// tests green: **no test rendered an ambient alert with a live clock.**
+  /// `theRingAndTheDismissBarBothDraw` above uses `.interrupt`, where
+  /// `scrimStrategy` is `.none` and the countdown scrim is therefore a no-op.
+  ///
+  /// The alert here has no title, message or footnote, so the only thing on the
+  /// surface is the countdown — which means every measurement below is
+  /// unambiguously about the countdown rather than about the text block's own
+  /// scrim.
+  @Test func theAmbientDismissBarIsLegibleAndScrimmed() throws {
+    let ambientClock = try #require(
+      clock(Countdown(task: nil, autoDismiss: .init(delay: 20, indicator: .bar))))
+    let interruptClock = try #require(
+      clock(Countdown(task: nil, autoDismiss: .init(delay: 20, indicator: .bar))))
+    let size = CGSize(width: 400, height: 220)
+
+    let ambient = render(
+      RichNotification(autoDismiss: .init(delay: 20, indicator: .bar), mode: .ambient),
+      size: size, clock: ambientClock)
+    let interrupt = render(
+      RichNotification(autoDismiss: .init(delay: 20, indicator: .bar), mode: .interrupt),
+      size: size, clock: interruptClock)
+
+    // 1. The bar is an *opaque* light fill. `white.opacity(0.55)` scores as
+    //    `light` but never as `solidLight`, which is what makes this catch a
+    //    revert to the translucent original.
+    #expect(
+      ambient.solidLight > 20,
+      "the ambient dismiss bar must be an opaque light fill, got \(ambient.solidLight)pt²")
+
+    // 2. The countdown region is scrimmed in `.ambient` and deliberately not in
+    //    `.interrupt`, where a global scrim already covers everything.
+    #expect(
+      ambient.alphaSum > interrupt.alphaSum * 2,
+      """
+      the ambient countdown must sit on its own scrim; \
+      ambient=\(Int(ambient.alphaSum)) interrupt=\(Int(interrupt.alphaSum))
+      """)
+
+    // 3. The bar casts an opposing shadow. Measured on `.interrupt`, where
+    //    there is no scrim to contribute dark translucent pixels of its own —
+    //    on the ambient render the scrim would mask a missing shadow entirely.
+    #expect(
+      interrupt.darkHalo > 5,
+      "the dismiss bar must carry a dark shadow, got \(interrupt.darkHalo)pt²")
+  }
+
   /// A true 2×2×2 over mode, Reduce Motion and Reduce Transparency.
   ///
-  /// The previous version tied the mode to the flag, so it covered two of four
+  /// The original version tied the mode to the flag, so it covered two of four
   /// combinations and missed exactly the two with dedicated code paths:
   /// `.interrupt` + Reduce Transparency (the opaque black layer) and `.ambient`
   /// without it (`FeatheredScrim`, therefore never evaluated by the suite at
   /// all).
   ///
-  /// Asserted on **layout**, not pixels, and the reason is worth recording. With
-  /// Reduce Motion *off*, the entrance spring starts at
-  /// `entranceOpacity = 0` and has not run by the time `cacheDisplay` snapshots,
-  /// so the frame is legitimately empty — which is an artifact of snapshotting
-  /// an animation on frame zero, and incidentally a confirmation that the
-  /// Reduce Motion branch really does skip the entrance. `fittingSize` forces
-  /// full body evaluation regardless of opacity, which is what this test is
-  /// for; the colour and scrim claims are asserted by the dedicated pixel tests
-  /// above, where Reduce Motion is on.
-  @Test func everyModeAndAccessibilityCombinationEvaluates() throws {
+  /// **What a headless snapshot can and cannot see, stated exactly**, because
+  /// two earlier versions of this test each claimed more than they proved. With
+  /// Reduce Motion *off*, `enter()` sets the final opacity inside
+  /// `withAnimation`, and SwiftUI's animations never advance in a test process:
+  /// there is no display link and no `NSApp` run loop to drive them. Measured —
+  /// the drawn area is still exactly zero four seconds and eight hundred
+  /// run-loop turns later. So those four combinations are permanently
+  /// transparent here, and no amount of pumping fixes it.
+  ///
+  /// What still happens for all eight is the part worth testing: the body is
+  /// evaluated and the whole tree lays out and draws during `cacheDisplay`. A
+  /// crash, a broken layout or an unsatisfiable constraint in the
+  /// Reduce-Motion-off branch surfaces regardless of the final composite being
+  /// transparent. So all eight assert that the render completed at full size,
+  /// and the four that are actually visible additionally assert that content
+  /// arrived. Claiming more than that would be the third wrong version.
+  @Test func everyModeAndAccessibilityCombinationDraws() throws {
     let ticking = try #require(
       clock(Countdown(task: timer(), autoDismiss: .init(delay: 5, indicator: .bar))))
+    let size = CGSize(width: 460, height: 520)
 
     for mode in [AlertMode.interrupt, .ambient] {
       for reduceMotion in [true, false] {
         for reduceTransparency in [true, false] {
-          let host = NSHostingView(
-            rootView: RichNotificationView(
-              notification: RichNotification(
-                illustration: .symbol("eye", pointSize: 48, color: nil),
-                title: "Break",
-                message: "Look 20 feet away",
-                footnote: "ESC to skip",
-                buttons: [.init(title: "Done", style: .primary, action: {})],
-                taskTimer: timer(),
-                autoDismiss: .init(delay: 5, indicator: .bar),
-                mode: mode),
-              reduceMotion: reduceMotion,
-              reduceTransparency: reduceTransparency,
-              onDismiss: {}
-            ).environment(\.notificationClock, ticking))
-          host.layoutSubtreeIfNeeded()
+          let label =
+            "mode=\(mode) reduceMotion=\(reduceMotion) reduceTransparency=\(reduceTransparency)"
+          let areas = render(
+            RichNotification(
+              illustration: .symbol("eye", pointSize: 48, color: nil),
+              title: "Break",
+              message: "Look 20 feet away",
+              footnote: "ESC to skip",
+              buttons: [.init(title: "Done", style: .primary, action: {})],
+              taskTimer: timer(),
+              autoDismiss: .init(delay: 5, indicator: .bar),
+              mode: mode),
+            size: size,
+            reduceTransparency: reduceTransparency,
+            reduceMotion: reduceMotion,
+            clock: ticking)
 
           #expect(
-            host.fittingSize.height > 0,
-            "mode=\(mode) reduceMotion=\(reduceMotion) reduceTransparency=\(reduceTransparency) did not lay out"
-          )
+            abs(areas.total - size.width * size.height) < 1,
+            "\(label) did not render at full size (\(areas.total)pt², scale \(areas.scale))")
+
+          if reduceMotion {
+            #expect(areas.ink > 100, "\(label) drew \(areas.ink)pt² of ink")
+          }
         }
       }
     }
@@ -765,22 +885,26 @@ struct RichRendererPixelTests {
   /// The illustration is arbitrary, which is the claim the third renderer
   /// exists to make: `StandardNotificationView` pins bitmaps to a hardcoded
   /// 48×48.
+  ///
+  /// Measured as drawn area rather than `fittingSize`, because
+  /// `sizeDecoupledFromHost` deliberately gives this view no intrinsic size —
+  /// that is the whole point of it, and a test reading `fittingSize` through it
+  /// now reads a constant 10×10 for every input.
   @Test func theIllustrationSizeReachesTheLayout() {
-    func height(_ illustration: RichNotification.Illustration) -> CGFloat {
-      let host = NSHostingView(
-        rootView: RichNotificationView(
-          notification: RichNotification(illustration: illustration, title: "Break", mode: .interrupt),
-          reduceMotion: true, reduceTransparency: false, onDismiss: {}))
-      host.layoutSubtreeIfNeeded()
-      return host.fittingSize.height
-    }
+    let size = CGSize(width: 500, height: 480)
+    let small = render(
+      RichNotification(
+        illustration: .symbol("square.fill", pointSize: 40, color: .white), mode: .interrupt),
+      size: size)
+    let large = render(
+      RichNotification(
+        illustration: .symbol("square.fill", pointSize: 200, color: .white), mode: .interrupt),
+      size: size)
 
-    let small = height(.symbol("eye", pointSize: 40, color: nil))
-    let large = height(
-      .image(NSImage(size: CGSize(width: 220, height: 150)), size: CGSize(width: 220, height: 150)))
-
-    #expect(small > 0)
-    #expect(large > small, "a 150pt illustration must make the surface taller than a 40pt one")
+    #expect(small.opaque > 100, "the small illustration must draw at all")
+    #expect(
+      large.opaque > small.opaque * 4,
+      "a 200pt illustration must cover far more than a 40pt one: \(large.opaque) vs \(small.opaque)")
   }
 
   /// Illustration, buttons and a footnote coexisting is the combination
@@ -801,6 +925,156 @@ struct RichRendererPixelTests {
         mode: .interrupt),
       size: CGSize(width: 460, height: 400))
 
-    #expect(full.opaque > bare.opaque + 1000, "buttons and a footnote must add visible content")
+    #expect(full.opaque > bare.opaque + 250, "buttons and a footnote must add visible content")
+  }
+}
+
+// MARK: - Window geometry
+
+/// The gap the whole suite had: **every other test measures a hosting view
+/// directly and never puts one inside a real `NSWindow`.**
+///
+/// That is precisely why `RichNotificationView` could resize its own window by
+/// a factor of twenty-five with 80 tests green. A demo harness found it by
+/// looking at the screen. These tests go through the public
+/// `OverlayWindowManager.show` and assert on `NSWindow.frame`.
+///
+/// The run-loop pump is not incidental. AppKit resolves the offending
+/// constraint one pass *after* `show()` returns, so a test that measures
+/// synchronously — as the first reproduction attempt did — sees the correct
+/// frame and reports success.
+@MainActor
+struct OverlayGeometryTests {
+
+  /// Long enough that a wrapped layout wants far more height than the window.
+  static let longMessage =
+    "Your changes were saved just now. This pass also folded in two duplicate "
+    + "entries that were created earlier today while this Mac was offline."
+
+  private func pump(rounds: Int = 40) {
+    for _ in 0..<rounds {
+      RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+    }
+  }
+
+  /// Shows `notification` through the real manager and returns the frame the
+  /// window actually settles at.
+  private func settledFrame(
+    _ notification: RichNotification,
+    configuration: OverlayWindowManager.Configuration
+  ) throws -> CGRect {
+    let manager = OverlayWindowManager.shared
+    let id = UUID()
+    _ = manager.show(id: id, configuration: configuration, countdown: notification.countdown) {
+      RichNotificationView(
+        notification: notification, reduceMotion: true, reduceTransparency: false, onDismiss: {})
+    }
+    let window = try #require(manager.activeWindows[id])
+    pump()
+    let frame = window.frame
+    manager.dismiss(id: id, animated: false)
+    return frame
+  }
+
+  /// An `.ambient` window keeps the size its caller asked for.
+  ///
+  /// Before `sizeDecoupledFromHost`, this exact case settled at
+  /// `(1328, -2059, 380, 2289)` — eleven times the requested height, with the
+  /// window hanging off the bottom of the display.
+  @Test func anAmbientWindowKeepsTheSizeItWasGiven() throws {
+    let frame = try settledFrame(
+      RichNotification(
+        title: "Synced to iCloud",
+        message: Self.longMessage,
+        autoDismiss: .init(delay: 20, indicator: .bar),
+        mode: .ambient),
+      configuration: .ambient(
+        position: .bottomRight, width: 380, height: 210, animatePresentation: false))
+
+    #expect(abs(frame.width - 380) <= 1, "width drifted to \(frame.width)")
+    #expect(abs(frame.height - 210) <= 1, "height drifted to \(frame.height)")
+  }
+
+  /// …and stays on the screen it was positioned on. Height and origin fail
+  /// together, but asserting the origin separately is what makes the failure
+  /// message say "off-screen" rather than just "too tall".
+  @Test func anAmbientWindowStaysWhereItWasPut() throws {
+    let screen = try #require(NSScreen.main ?? NSScreen.screens.first)
+    let frame = try settledFrame(
+      RichNotification(
+        title: "Synced to iCloud", message: Self.longMessage, mode: .ambient),
+      configuration: .ambient(
+        position: .bottomRight, width: 380, height: 210, animatePresentation: false,
+        screen: screen))
+
+    #expect(
+      screen.frame.contains(frame),
+      "the window left its screen: \(frame) is not inside \(screen.frame)")
+  }
+
+  /// Content that cannot possibly fit is clipped, not granted a larger window.
+  /// A 600×500 illustration in a 380×210 window used to produce a 656×588
+  /// window.
+  @Test func oversizedContentDoesNotEnlargeAnAmbientWindow() throws {
+    let frame = try settledFrame(
+      RichNotification(
+        illustration: .image(
+          NSImage(size: CGSize(width: 600, height: 500)), size: CGSize(width: 600, height: 500)),
+        title: "Synced",
+        message: Self.longMessage,
+        mode: .ambient),
+      configuration: .ambient(
+        position: .bottomRight, width: 380, height: 210, animatePresentation: false))
+
+    #expect(abs(frame.width - 380) <= 1, "width drifted to \(frame.width)")
+    #expect(abs(frame.height - 210) <= 1, "height drifted to \(frame.height)")
+  }
+
+  /// **`.interrupt` was affected too**, and this is the assertion that says so.
+  ///
+  /// The first diagnosis assumed only fixed-size windows could be distorted,
+  /// since interrupt asks for the whole screen anyway. Measured, an interrupt
+  /// with a long message settled at `(0, -27049, 1728, 28166)` against a
+  /// 1728×1117 screen — twenty-five times too tall, invisible because the
+  /// window is transparent, and quietly centring the content thousands of
+  /// points below the display. A fix scoped to `.ambient` would have shipped
+  /// this.
+  @Test func anInterruptWindowCoversExactlyItsScreen() throws {
+    let screen = try #require(NSScreen.main ?? NSScreen.screens.first)
+    let frame = try settledFrame(
+      RichNotification(
+        title: "Time for a break",
+        message: Self.longMessage,
+        taskTimer: TaskTimer(
+          duration: 20, unitLabel: "seconds", completionLabel: "Break complete"),
+        mode: .interrupt),
+      configuration: .interrupt(animatePresentation: false, screen: screen))
+
+    #expect(
+      abs(frame.height - screen.frame.height) <= 1,
+      "interrupt height \(frame.height) against a \(screen.frame.height)pt screen")
+    #expect(abs(frame.width - screen.frame.width) <= 1)
+    #expect(abs(frame.origin.y - screen.frame.origin.y) <= 1)
+  }
+
+  /// The control. `StandardNotificationView` under an identical configuration
+  /// was never affected, which is what established that the defect belonged to
+  /// the new renderer rather than to `OverlayWindowManager`.
+  @Test func theExistingRendererIsUnaffectedUnderTheSameConfiguration() throws {
+    let manager = OverlayWindowManager.shared
+    let id = UUID()
+    _ = manager.show(
+      id: id,
+      configuration: .ambient(
+        position: .bottomRight, width: 380, height: 210, animatePresentation: false)
+    ) {
+      StandardNotificationView(
+        notification: StandardNotification(title: "Synced", message: Self.longMessage),
+        onDismiss: {})
+    }
+    let window = try #require(manager.activeWindows[id])
+    pump()
+    #expect(abs(window.frame.height - 210) <= 1)
+    manager.dismiss(id: id, animated: false)
   }
 }

@@ -88,10 +88,16 @@ extension View {
   /// Places the strategy's backdrop behind this view, sized to it and grown
   /// outward by the feather so the falloff completes inside the drawn rect.
   ///
-  /// Behind the *text block only*. Not the illustration, which carries its own
-  /// glow, and not the buttons, which carry their own fill — scrimming those
-  /// would be drawing a backdrop for something that already has one, and the
-  /// combined rect would be large enough for its gradient to read as a panel.
+  /// Applied to the three regions this library draws in light ink: the
+  /// title/message block, the countdown (ring and dismiss indicator), and the
+  /// footnote. Each gets its own scrim rather than one shared rect, because a
+  /// single rect spanning them would also cover the buttons sitting between
+  /// them — and a gradient that large stops reading as a scrim and starts
+  /// reading as a panel.
+  ///
+  /// Deliberately *not* applied to the illustration, which carries its own drop
+  /// shadow, nor to the buttons, which carry their own opaque fills. Scrimming
+  /// those would be drawing a backdrop for something that already has one.
   @ViewBuilder
   func scrimmed(_ strategy: ScrimStrategy, feather: CGFloat = FeatheredScrim.feather) -> some View {
     switch strategy {
