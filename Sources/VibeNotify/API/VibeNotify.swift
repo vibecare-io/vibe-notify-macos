@@ -464,6 +464,14 @@ public class NotificationBuilder {
         return self
     }
 
+    /// Deprecated alongside `AutoDismiss.init(delay:showProgress:)` (see
+    /// `NotificationContent.swift`) — kept, not replaced with an
+    /// `indicator:`-taking overload, because a second defaulted-second-
+    /// parameter overload of the same base name would make every existing
+    /// call site that omits both trailing arguments ambiguous. Building a
+    /// non-ambiguous `indicator:` entry point onto the builder is engine
+    /// work for the next task, not this one.
+    @available(*, deprecated, message: "showProgress: true maps to AutoDismiss.indicator == .bar, false maps to .none")
     public func autoDismiss(after delay: TimeInterval, showProgress: Bool = false) -> Self {
         self.autoDismiss = StandardNotification.AutoDismiss(delay: delay, showProgress: showProgress)
         return self
