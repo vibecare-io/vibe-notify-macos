@@ -96,6 +96,12 @@ public class OverlayWindowManager {
     let dismissOnScreenTap: Bool
     let animatePresentation: Bool
     let screen: NSScreen?
+    /// Opacity of the black backdrop behind the blur, independent of blur radius
+    /// (`ScreenBlurIntensity`). Clamped to `0.1...0.95`: the floor is the minimum
+    /// background alpha the private CGS blur call needs to composite at all (see
+    /// `createBlurWindow`), and the ceiling stops short of a fully opaque backdrop,
+    /// which would no longer read as a blur.
+    let screenDim: Double
 
     public init(
       presentationMode: PresentationMode = .fullScreen,
@@ -116,7 +122,8 @@ public class OverlayWindowManager {
       screenBlurIntensity: ScreenBlurIntensity? = nil,
       dismissOnScreenTap: Bool = false,
       animatePresentation: Bool = true,
-      screen: NSScreen? = nil
+      screen: NSScreen? = nil,
+      screenDim: Double = 0.1
     ) {
       self.presentationMode = presentationMode
       self.position = position
@@ -137,6 +144,7 @@ public class OverlayWindowManager {
       self.dismissOnScreenTap = dismissOnScreenTap
       self.animatePresentation = animatePresentation
       self.screen = screen
+      self.screenDim = min(max(screenDim, 0.1), 0.95)
     }
   }
 
@@ -282,7 +290,14 @@ public class OverlayWindowManager {
 
     window.isOpaque = !configuration.isTransparent
     window.backgroundColor = configuration.backgroundColor
-    window.level = configuration.alwaysOnTop ? .floating : configuration.windowLevel.nsWindowLevel
+    // `alwaysOnTop` is a floor, not an override: a caller who explicitly requests a
+    // level above `.floating` (e.g. `.screenSaver`, to sit above another app's
+    // full-screen window) must not be knocked back down to `.floating` just because
+    // `alwaysOnTop` (default true) is also set.
+    window.level =
+      configuration.alwaysOnTop
+      ? max(.floating, configuration.windowLevel.nsWindowLevel)
+      : configuration.windowLevel.nsWindowLevel
     window.ignoresMouseEvents = configuration.ignoresMouseEvents
     window.isMovableByWindowBackground = configuration.isMoveable
     window.alphaValue = configuration.windowOpacity
@@ -319,8 +334,11 @@ public class OverlayWindowManager {
     // Use new intensity-based blur if specified, otherwise fall back to legacy material-based blur
     if let intensity = configuration.screenBlurIntensity {
       // New CGS-based blur with configurable radius
-      // Window needs sufficient background alpha for blur to be visible (~0.1 minimum)
-      window.backgroundColor = NSColor.black.withAlphaComponent(0.1)
+      // Window needs sufficient background alpha for blur to be visible (~0.1 minimum) —
+      // `screenDim` is independent of `intensity`: intensity controls blur radius
+      // (how much desktop detail survives), screenDim controls backdrop opacity
+      // (how much desktop light survives). Do not fold the two together.
+      window.backgroundColor = NSColor.black.withAlphaComponent(CGFloat(configuration.screenDim))
       WindowBlurHelper.setBlurRadius(intensity.radius, for: window)
 
       // Create a transparent view that can handle tap gestures
@@ -445,7 +463,7 @@ public class OverlayWindowManager {
     }
   }
 
-  private func animateDismiss(window: NSWindow, completion: @escaping () -> Void) {
+  private func animateDismiss(window: NSWindow, completion: @escaping @MainActor () -> Void) {
     NSAnimationContext.runAnimationGroup(
       { context in
         context.duration = 0.25
@@ -453,8 +471,10 @@ public class OverlayWindowManager {
         window.animator().alphaValue = 0.0
       },
       completionHandler: {
-        window.close()
-        completion()
+        MainActor.assumeIsolated {
+          window.close()
+          completion()
+        }
       })
   }
 }
