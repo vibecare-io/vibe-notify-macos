@@ -111,12 +111,78 @@ struct ConfigurationTests {
     manager.dismiss(id: id, animated: false)
   }
 
-  /// `.ambient` is a positioned window with the desktop left untouched: no
-  /// blur window at all, so `screenDim` is inert for this mode.
-  @Test func ambientFactoryProducesPositionedNonBlurConfiguration() {
-    let configuration = OverlayWindowManager.Configuration.ambient(position: .center)
+  /// `canBecomeKey` (above) is shared by every window `OverlayWindowManager`
+  /// produces — it does not distinguish `.interrupt` from `.ambient`. What
+  /// actually discriminates the two, and what `show()` reads to decide
+  /// between `makeKeyAndOrderFront` and a plain `orderFront`, is
+  /// `Configuration.takesKeyFocus`. A toast that steals focus mid-keystroke
+  /// is exactly the failure `.ambient` exists to avoid; `.interrupt` must
+  /// keep seizing focus unprompted (ESC has to work without a prior click).
+  @Test func interruptRequestsKeyFocusButAmbientDoesNot() {
+    let interruptConfiguration = OverlayWindowManager.Configuration.interrupt()
+    let ambientConfiguration = OverlayWindowManager.Configuration.ambient(
+      position: .center, width: 320, height: 160)
 
-    #expect(configuration.screenBlur == false)
-    #expect(configuration.position != nil)
+    #expect(interruptConfiguration.takesKeyFocus == true)
+    #expect(ambientConfiguration.takesKeyFocus == false)
+  }
+
+  /// `.ambient` is a positioned window with the desktop left untouched: no
+  /// blur window at all, so `screenDim` is inert for this mode. Asserted on
+  /// the *produced window*, not the configuration: `position` is a required,
+  /// non-optional parameter of `.ambient(position:...)`, so
+  /// `configuration.position != nil` is structurally true and would never
+  /// catch a regression — which is exactly how a prior version of this
+  /// factory shipped an ambient window that was silently the full size of
+  /// the screen (nothing ever set `width`/`height`, so `createWindow`'s
+  /// frame calculation never shrank past `.fullScreen`'s starting rect,
+  /// producing a transparent full-screen click-blocker with
+  /// `ignoresMouseEvents == false`). Requiring `width`/`height` on the
+  /// factory closes that hole; this test proves it via real `NSWindow.frame`
+  /// and `ignoresMouseEvents`, the same way `alwaysOnTopIsAFloorNotAnOverrideOfHigherLevel`
+  /// above asserts on real window state rather than the configuration alone.
+  @Test func ambientFactoryProducesWindowSizedAndPositionedToItsContent() throws {
+    let manager = OverlayWindowManager.shared
+    let id = UUID()
+    let width: CGFloat = 320
+    let height: CGFloat = 160
+
+    _ = manager.show(
+      id: id,
+      configuration: .ambient(
+        position: .center, width: width, height: height, animatePresentation: false)
+    ) {
+      EmptyView()
+    }
+
+    let window = try #require(manager.activeWindows[id])
+    let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first!
+
+    // Tolerance of 1pt, not exact equality: on a screen whose height doesn't
+    // divide evenly by 2 (e.g. 1117pt), centering produces a fractional
+    // origin.y, and AppKit's backing-store pixel alignment for a borderless
+    // window's contentRect can round that into a 1pt difference on the
+    // corresponding dimension (confirmed by isolated experiment — a window
+    // requested at y: 478.5, height: 160 comes back y: 478, height: 161).
+    // That is a legitimate AppKit rounding quirk, not the bug under test —
+    // what this test guards is "not screen-sized", not "pixel-exact".
+    #expect(abs(window.frame.width - width) <= 1)
+    #expect(abs(window.frame.height - height) <= 1)
+    #expect(
+      window.frame != screen.frame,
+      "an ambient window must not cover the whole screen — that swallows every click on the display"
+    )
+    #expect(
+      window.ignoresMouseEvents == false,
+      "an ambient window must receive its own clicks, not fall through to whatever is under it")
+
+    let expectedOrigin = CGPoint(
+      x: screen.frame.minX + (screen.frame.width - width) / 2,
+      y: screen.frame.minY + (screen.frame.height - height) / 2
+    )
+    #expect(abs(window.frame.origin.x - expectedOrigin.x) <= 1)
+    #expect(abs(window.frame.origin.y - expectedOrigin.y) <= 1)
+
+    manager.dismiss(id: id, animated: false)
   }
 }
