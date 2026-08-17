@@ -34,7 +34,7 @@ public struct SVGNotificationView: View {
       // SVG Content with adaptive glow/shadow
       SVGView(contentsOf: notification.svgSource.url)
         .frame(width: notification.svgSize.width, height: notification.svgSize.height)
-        .shadow(color: useLightText ? .white.opacity(0.5) : .black.opacity(0.5), radius: 15)
+        .shadow(color: useLightText ? .green.opacity(0.5) : .black.opacity(0.5), radius: 15)
         .scaleEffect(scale)
         .opacity(opacity)
 
