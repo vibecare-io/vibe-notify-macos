@@ -45,9 +45,22 @@ struct CountdownRing: View {
   }
 
   /// Diameter of the ring. Sized to be the second-largest thing on the surface.
-  static let diameter: CGFloat = 148
-  static let lineWidth: CGFloat = 8
-  static let tickCount: Int = 40
+  static let diameter: CGFloat = 164
+  static let lineWidth: CGFloat = 9
+
+  /// **Twenty-four, down from forty.** At 148 points across, forty 1.5-point
+  /// ticks at 22% white sat 11 points apart and antialiased into a grey fringe
+  /// — a texture, not a dial. The reported symptom was that they "read as muddy
+  /// at this size", and the cause is spatial frequency, not colour: no opacity
+  /// makes forty hairlines at that pitch resolve. Twenty-four at 2 points and
+  /// 34% do, and a 15° pitch is a dial anyone can read.
+  static let tickCount: Int = 24
+  static let tickLength: CGFloat = 7
+  static let tickWidth: CGFloat = 2
+  /// Gap between the outside of the track and the inside of the ticks. Small
+  /// enough that the two read as one object rather than as a ring with a
+  /// separate sunburst floating around it, which is what a 10-point gap did.
+  static let tickGap: CGFloat = 5
 
   /// The stroke once a task genuinely ran to zero. Not used for an early Done:
   /// the colour is part of the claim, and the claim has to be true.
@@ -107,9 +120,29 @@ struct CountdownRing: View {
 
   // MARK: - Layers
 
+  /// The unfilled part of the dial.
+  ///
+  /// Two strokes, not one. A single `white.opacity(0.18)` ring was the reported
+  /// "faint track" problem, and simply raising the alpha does not fix it: over
+  /// the light half of a split desktop a pale ring on a pale field is *still*
+  /// invisible, so the fix has to work in both directions like everything else
+  /// here. The dark stroke underneath is the same opposition rule the text
+  /// shadows follow — it gives the light track something to be light against on
+  /// backdrops the library does not own.
   private var track: some View {
-    Circle()
-      .stroke(Color.white.opacity(0.18), lineWidth: Self.lineWidth)
+    ZStack {
+      // Blurred and wider than the track it sits under, so it reads as a soft
+      // aura rather than as a second concentric ring. Measured the other way
+      // first: a crisp `black.opacity(0.32)` at `lineWidth + 1.5` made the
+      // unfilled arc read *darker* than the backdrop on a mid-grey field, which
+      // inverts what a track means — the unfilled part of a dial is a dimmer
+      // version of the filled part, not its negative.
+      Circle()
+        .stroke(Color.black.opacity(0.28), lineWidth: Self.lineWidth + 5)
+        .blur(radius: 3)
+      Circle()
+        .stroke(Color.white.opacity(0.28), lineWidth: Self.lineWidth)
+    }
   }
 
   @ViewBuilder
@@ -137,22 +170,33 @@ struct CountdownRing: View {
   }
 
   private var ticks: some View {
-    TickMarks(count: Self.tickCount)
-      .stroke(Color.white.opacity(0.22), lineWidth: 1.5)
-      .padding(-10)
+    TickMarks(count: Self.tickCount, length: Self.tickLength)
+      .stroke(
+        Color.white.opacity(0.34),
+        style: StrokeStyle(lineWidth: Self.tickWidth, lineCap: .round)
+      )
+      // Negative padding grows the tick ring outward from the ring's own frame
+      // without moving anything below it. Derived rather than eyeballed, so
+      // that changing `lineWidth` or `diameter` cannot silently reopen the gap:
+      // the stroke straddles the circle, so its outer edge is half a line width
+      // beyond the frame, and the ticks start `tickGap` past that.
+      .padding(-(Self.lineWidth / 2 + Self.tickGap + Self.tickLength))
+      .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
   }
 
   @ViewBuilder
   private var centre: some View {
     if let label = completion.label {
-      VStack(spacing: 6) {
+      VStack(spacing: 8) {
         Image(systemName: "checkmark")
-          .font(.system(size: 34, weight: .semibold))
+          .font(.system(size: 32, weight: .semibold))
           .foregroundColor(stroke)
         Text(label)
           .font(.system(size: 13, weight: .medium))
           .foregroundColor(Legibility.TextStyle.message.color)
           .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: Self.diameter - 32)
       }
       .shadow(
         color: Legibility.TextStyle.message.shadowColor,
@@ -163,9 +207,20 @@ struct CountdownRing: View {
       // the surface that changes once a second, and `TimelineView` is aligned
       // to the wall clock rather than accumulating from ticks.
       TimelineView(.periodic(from: .now, by: 1)) { _ in
-        VStack(spacing: 2) {
+        // Spacing 0, not 2, and a negative top pad on the label: a numeral's
+        // ascender box is much taller than its digits, so the *typographic* gap
+        // is already several points wider than the number says. The numeral and
+        // its unit are one readout and have to sit as one — the reported
+        // symptom was that the pairing "could be tighter", and 2 points of
+        // stack spacing on top of the digit's own leading is what made them
+        // read as two stacked labels.
+        VStack(spacing: 0) {
           Text("\(secondsRemaining)")
-            .font(.system(size: 46, weight: .semibold, design: .rounded))
+            // 42, down from 46. The numeral was set larger than the 30-point
+            // title, so the two competed for the top of the hierarchy; the
+            // title has to win that, and a dial readout at 42 in a 164-point
+            // ring is still unmistakably the second-largest thing here.
+            .font(.system(size: 42, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .foregroundColor(Legibility.TextStyle.title.color)
             .shadow(
@@ -173,12 +228,19 @@ struct CountdownRing: View {
               radius: Legibility.TextStyle.title.shadowRadius,
               y: Legibility.TextStyle.title.shadowOffsetY)
           Text(timer.unitLabel)
-            .font(.system(size: 12, weight: .medium))
+            // Small caps with wide tracking, which is what a unit under a dial
+            // readout is. It also stops "seconds" competing with the message
+            // line above the ring at the same 11–13 point size: they now differ
+            // in *kind*, not just in size.
+            .font(.system(size: 10, weight: .semibold))
+            .textCase(.uppercase)
+            .tracking(1.6)
             .foregroundColor(Legibility.TextStyle.footnote.color)
             .shadow(
               color: Legibility.TextStyle.footnote.shadowColor,
               radius: Legibility.TextStyle.footnote.shadowRadius,
               y: Legibility.TextStyle.footnote.shadowOffsetY)
+            .padding(.top, -4)
         }
       }
     }
@@ -263,12 +325,16 @@ struct CountdownRing: View {
 /// The ring's tick marks: short radial strokes just outside the track.
 struct TickMarks: Shape {
   let count: Int
+  /// Radial length of each mark. A parameter rather than the hardcoded 6 it
+  /// used to be, because the length has to move with the tick *count* — fewer,
+  /// longer marks is what turns a fringe back into a dial.
+  var length: CGFloat = 7
 
   func path(in rect: CGRect) -> Path {
     var path = Path()
     let centre = CGPoint(x: rect.midX, y: rect.midY)
     let outer = min(rect.width, rect.height) / 2
-    let inner = outer - 6
+    let inner = outer - length
 
     for index in 0..<max(1, count) {
       let angle = (Double(index) / Double(count)) * 2 * .pi - .pi / 2

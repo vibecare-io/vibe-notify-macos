@@ -25,11 +25,23 @@ struct RichButtonStyle: SwiftUI.ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.system(size: 14, weight: .semibold))
+      .tracking(0.2)
       .foregroundColor(labelColor)
-      .padding(.horizontal, 22)
+      .padding(.horizontal, 24)
       .padding(.vertical, 11)
       .background(
-        Capsule().fill(fill)
+        // Two fills for the non-primary roles, and this is the change that
+        // makes the row read as one family. An opaque `black.opacity(0.42)`
+        // capsule beside an opaque white one is not "primary and secondary", it
+        // is two unrelated buttons — the reported reading. The dark layer is
+        // still there because a button sits *outside* the scrim and has to
+        // carry contrast over a desktop this library does not own; the light
+        // layer on top is what puts it on the same axis as the primary, so the
+        // pair now differs only in how much white each one has.
+        ZStack {
+          Capsule().fill(underFill)
+          Capsule().fill(fill)
+        }
       )
       .overlay(
         // A hairline is forbidden on the *scrim*, where it would give an
@@ -55,8 +67,22 @@ struct RichButtonStyle: SwiftUI.ButtonStyle {
   private var fill: Color {
     switch role {
     case .primary: return .white
-    case .secondary: return .black.opacity(0.42)
+    // White at a low alpha, not black at a high one: the whole row is then
+    // "white at 1.0" beside "white at 0.16", which reads as one control in two
+    // strengths. `underFill` supplies the contrast floor underneath.
+    case .secondary: return .white.opacity(0.16)
     case .destructive: return Color(red: 0.85, green: 0.24, blue: 0.24)
+    }
+  }
+
+  /// The opaque-ish layer beneath `fill`, present only where `fill` is
+  /// translucent. Without it the secondary button dissolves into a blurred
+  /// light desktop, which is the failure `black.opacity(0.42)` was there to
+  /// prevent and which this must not reintroduce.
+  private var underFill: Color {
+    switch role {
+    case .primary, .destructive: return .clear
+    case .secondary: return .black.opacity(0.30)
     }
   }
 
@@ -70,7 +96,7 @@ struct RichButtonStyle: SwiftUI.ButtonStyle {
   private var border: Color {
     switch role {
     case .primary: return .clear
-    case .secondary: return .white.opacity(0.38)
+    case .secondary: return .white.opacity(0.30)
     case .destructive: return .white.opacity(0.18)
     }
   }

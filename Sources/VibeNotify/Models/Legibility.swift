@@ -181,6 +181,45 @@ public enum Legibility {
       shadowOffsetY: 1)
   }
 
+  // MARK: - Illustration treatment
+
+  /// The luminance below which artwork counts as *dark* and therefore needs a
+  /// light backing rather than a dark one.
+  ///
+  /// Not 0.5. The measurement is an alpha-weighted mean over inked pixels only,
+  /// and line art — the common case — is mostly its own ink, so a mid-grey
+  /// illustration lands near 0.5 from either side. Biasing the threshold down
+  /// means an ambiguous mid-tone gets the *shadow*, which is the treatment that
+  /// cannot make anything worse: a dark shadow under mid-tone artwork is merely
+  /// weak, whereas a light halo under mid-tone artwork starts to wash.
+  public static let darkArtworkLuminance: Double = 0.42
+
+  /// Which treatment lifts artwork off the scrim.
+  ///
+  /// **This is the same opposition rule the text styles follow, applied to the
+  /// one element it had never been applied to.** Light text takes a dark
+  /// shadow; dark artwork takes a light halo. The renderer previously gave
+  /// *every* illustration a dark drop shadow, which is correct for white line
+  /// art and exactly wrong for the black-filled `eye.svg` it actually ships
+  /// with — a dark shadow under a black silhouette on a dimmed desktop does
+  /// nothing at all, and on the dark half of a split desktop the artwork
+  /// disappeared.
+  ///
+  /// - Parameter artworkLuminance: alpha-weighted mean luminance of the
+  ///   artwork's *inked* pixels, or `nil` when it could not be measured (an
+  ///   empty image, a bitmap with no representations, a render that produced
+  ///   nothing).
+  ///
+  /// `nil` resolves to `.shadow` deliberately. Neither treatment is safe for
+  /// unknown artwork, so the tie-break is which failure is cheaper: a dark
+  /// shadow under artwork that turns out to be dark is the status quo ante, and
+  /// a light halo under artwork that turns out to be light is the halo-under-
+  /// white-text mistake this library was written to fix.
+  public static func illustrationTreatment(artworkLuminance: Double?) -> IllustrationTreatment {
+    guard let artworkLuminance else { return .shadow }
+    return artworkLuminance < darkArtworkLuminance ? .halo : .shadow
+  }
+
   // MARK: - Accessibility
 
   /// The two system settings the rich renderer honours, read live.
@@ -208,6 +247,22 @@ public enum Legibility {
       NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     }
   }
+}
+
+/// What the renderer draws behind — or around — the illustration.
+///
+/// Not a `Bool` and not a shadow colour: the two treatments are structurally
+/// different drawings, not the same drawing in two colours. `.shadow` is a
+/// displaced dark offset that reads as separation; `.halo` is a centred bloom
+/// that reads as light behind the artwork, and it needs a wide diffuse layer
+/// a `.shadow` radius cannot produce.
+public enum IllustrationTreatment: Equatable, Sendable {
+  /// A soft light bloom behind the artwork plus a tight light glow hugging its
+  /// silhouette. For **dark** artwork on the dimmed desktop.
+  case halo
+  /// A displaced dark drop shadow. For **light** artwork, and the fallback for
+  /// artwork whose tone could not be measured.
+  case shadow
 }
 
 /// What the renderer draws behind its own text block.
