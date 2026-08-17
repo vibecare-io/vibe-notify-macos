@@ -31,6 +31,12 @@ public class OverlayWindowManager {
   // `@testable import` to verify window teardown without widening public API.
   var activeWindows: [UUID: NSWindow] = [:]
   var blurWindows: [UUID: NSWindow] = [:]
+  /// The countdown for each overlay, keyed by the same id as its window. A clock
+  /// is just one more thing this class owns per id: it already creates the
+  /// window, owns the ESC handler and owns the tap-to-dismiss wiring, so it is
+  /// the only place from which a timer can actually be *cancelled* when any of
+  /// those fire. See `NotificationClock`.
+  var clocks: [UUID: NotificationClock] = [:]
 
   // MARK: - Window Level Presets
   public enum WindowLevel {
@@ -171,10 +177,18 @@ public class OverlayWindowManager {
   // MARK: - Public Methods
 
   /// Show a SwiftUI view as an overlay window
+  ///
+  /// `countdown` is optional and defaults to nil, so every call written before it
+  /// existed still compiles unchanged. Supply one and this manager — not the
+  /// view — owns the timer: it builds a `NotificationClock`, keeps it in
+  /// `clocks[id]` beside the window, injects it into the SwiftUI environment
+  /// around `content`, and cancels it from `dismiss(id:)` no matter which
+  /// dismissal path got there first.
   @discardableResult
   public func show<Content: View>(
     id: UUID = UUID(),
     configuration: Configuration = Configuration(),
+    countdown: Countdown? = nil,
     @ViewBuilder content: () -> Content
   ) -> UUID {
     // Create blur background window if needed
@@ -189,9 +203,29 @@ public class OverlayWindowManager {
       }
     }
 
+    // Build the clock before the hosting view, so it can be injected into the
+    // environment around `content` — that injection is how caller-supplied
+    // SwiftUI content inherits a countdown without asking for one, instead of
+    // each caller scheduling its own uncancellable `asyncAfter` next to `show`.
+    // Any clock left over on this id (ids get recycled here) is stopped first:
+    // dropping it from the dictionary alone would leave its timer running.
+    clocks.removeValue(forKey: id)?.invalidate()
+    let clock = countdown.flatMap {
+      NotificationClock(
+        id: id,
+        countdown: $0,
+        onEnd: { [weak self] endedID, generation in
+          self?.clockDidEnd(id: endedID, generation: generation)
+        })
+    }
+    if let clock {
+      clocks[id] = clock
+    }
+
     // Create main notification window
     let window = createWindow(configuration: configuration)
-    let hostingView = NSHostingView(rootView: content())
+    let hostingView = NSHostingView(
+      rootView: content().environment(\.notificationClock, clock))
 
     window.contentView = hostingView
 
@@ -214,6 +248,11 @@ public class OverlayWindowManager {
       window.orderFront(nil)
     }
 
+    // Started only once the window is actually up, and only after
+    // `activeWindows[id]` is set: a zero-length countdown may end on its first
+    // tick, and its dismissal must find a window to close.
+    clock?.start()
+
     return id
   }
 
@@ -223,6 +262,12 @@ public class OverlayWindowManager {
     // exists for this id — belongs above the guard below. The blur window has no
     // owner but this manager, so if we bail out early on a missing main window (id
     // reuse, prior partial teardown, etc.) it is orphaned with no route to close.
+    //
+    // The clock is the same shape of problem and goes first: every dismissal path
+    // (button, ESC, click-away, `dismissAll`) funnels through here, so this single
+    // line is what makes a countdown cancellable at all. Below the guard it would
+    // leak a repeating timer for any id whose main window is already gone.
+    cancelClock(id: id)
     dismissBlurWindow(id: id, animated: animated)
     sweepOrphanedBlurWindows(excluding: id)
 
@@ -242,6 +287,29 @@ public class OverlayWindowManager {
       window.close()
       activeWindows.removeValue(forKey: id)
     }
+  }
+
+  /// Stops and releases the clock for `id`, if any. Silent: `invalidate()` does not
+  /// call back into `clockDidEnd`, because we are already inside the dismissal it
+  /// would ask for.
+  private func cancelClock(id: UUID) {
+    clocks.removeValue(forKey: id)?.invalidate()
+  }
+
+  /// A clock reached its end on its own (`.finished`, or a task whose deadline
+  /// elapsed while the machine slept) and is asking for its window to come down.
+  ///
+  /// The generation check is the whole point of the token: ids are recycled here,
+  /// so a callback in flight from a *previous* clock must not take down the window
+  /// that has since claimed the id — the same failure the identity check in
+  /// `animateDismiss` guards against, keyed by a monotonic token instead of object
+  /// identity because the old clock may already be deallocated.
+  ///
+  /// Internal, not private: the test target drives it directly to exercise the
+  /// stale-generation path without waiting on a real timer.
+  func clockDidEnd(id: UUID, generation: Int) {
+    guard let clock = clocks[id], clock.generation == generation else { return }
+    dismiss(id: id, animated: true)
   }
 
   /// Tears down the blur window for `id`, if any, independently of the main window's state.
@@ -278,7 +346,10 @@ public class OverlayWindowManager {
 
   /// Dismiss all overlay windows
   public func dismissAll(animated: Bool = true) {
-    let ids = Array(activeWindows.keys)
+    // Union, not just `activeWindows`: a clock whose main-window entry was already
+    // dropped would otherwise survive a "dismiss everything" with its timer still
+    // running against a window that no longer exists.
+    let ids = Set(activeWindows.keys).union(clocks.keys)
     ids.forEach { dismiss(id: $0, animated: animated) }
   }
 
