@@ -62,6 +62,16 @@ struct CountdownRing: View {
   /// disagree.
   @State private var arc: CGFloat = 0
 
+  /// The last whole-second count observed while the task was actually running.
+  ///
+  /// Exists for cancellation. `NotificationClock.remaining` and `progress` are
+  /// both pinned (0 and 1) the moment the phase goes terminal, so once Skip or
+  /// ESC lands there is no way to ask the clock where the countdown had got to.
+  /// Without this the ring would show a "0" the user never reached, and — under
+  /// Reduce Motion — an arc that *fills* on the way out, both of which are the
+  /// surface claiming something happened that did not.
+  @State private var lastSecondsRemaining: Int = 0
+
   private var stroke: Color {
     completion.isCompletion ? Self.successStroke : Legibility.TextStyle.title.color
   }
@@ -74,11 +84,25 @@ struct CountdownRing: View {
       centre
     }
     .frame(width: Self.diameter, height: Self.diameter)
-    .onAppear { armArc() }
+    .onAppear {
+      captureSecond()
+      armArc()
+    }
     // The arc is re-armed on every phase change rather than on a timer: `.task`
     // → `.dismissing` is the only transition that changes what it should be
     // showing, and it is the transition that must *snap* rather than sweep.
     .onChange(of: clock.phase) { _, _ in armArc() }
+    // Not a redraw driver — the body already re-evaluates on every tick, since
+    // this view observes the clock. This only keeps the freeze value current so
+    // that a cancellation has something truthful to freeze *at*.
+    .onChange(of: clock.lastTick) { _, _ in captureSecond() }
+  }
+
+  /// Records where the countdown is, but only while it is genuinely running.
+  /// Terminal phases deliberately leave the value alone: that is the freeze.
+  private func captureSecond() {
+    guard clock.phase == .task else { return }
+    lastSecondsRemaining = max(0, Int(clock.remaining.rounded(.up)))
   }
 
   // MARK: - Layers
@@ -162,23 +186,49 @@ struct CountdownRing: View {
 
   // MARK: - Values
 
-  private var secondsRemaining: Int {
-    guard clock.phase == .task else { return 0 }
-    return max(0, Int(clock.remaining.rounded(.up)))
+  /// The number in the middle of the ring.
+  ///
+  /// Live while the task runs, frozen at its last observed value afterwards.
+  /// Returning 0 outside `.task` — as this used to — put a "0" on screen during
+  /// the fade of a countdown the user cancelled at fifteen, which is the same
+  /// class of lie as an early Done claiming a completed break.
+  var secondsRemaining: Int {
+    clock.phase == .task
+      ? max(0, Int(clock.remaining.rounded(.up)))
+      : lastSecondsRemaining
   }
 
-  /// The arc's value under Reduce Motion.
+  /// The arc's value under Reduce Motion, as a pure function of the phase and
+  /// the whole-second count, so the cancellation case is assertable without a
+  /// screen.
   ///
-  /// Quantized from `secondsRemaining` — the same whole-second value the
-  /// numeral shows — rather than from `clock.progress`. That is not
-  /// belt-and-braces: this view observes the clock, which republishes every
-  /// 0.1s, so a body reading `progress` directly would sweep at 10 Hz and the
-  /// `TimelineView` around it would change nothing. Deriving from the second
-  /// count makes the step a property of the *value*, not of how often the view
-  /// happens to be asked to draw, and guarantees the arc and the digit agree.
+  /// Quantized from the second count — the same value the numeral shows —
+  /// rather than from `clock.progress`. That is not belt-and-braces: this view
+  /// observes the clock, which republishes every 0.1s, so a body reading
+  /// `progress` directly would sweep at 10 Hz and the `TimelineView` around it
+  /// would change nothing. Deriving from the second count makes the step a
+  /// property of the *value*, not of how often the view happens to be asked to
+  /// draw, and guarantees the arc and the digit agree.
+  ///
+  /// `.cancelled` reads the frozen count and therefore stays where the
+  /// countdown stopped — matching the non-Reduce-Motion path, which leaves the
+  /// arc alone rather than animating it. An arc that completes on Skip says the
+  /// break finished.
+  static func steppedArc(
+    phase: NotificationClock.Phase, secondsRemaining: Int, duration: TimeInterval
+  ) -> CGFloat {
+    switch phase {
+    case .dismissing, .finished:
+      return 1
+    case .task, .cancelled:
+      guard duration > 0 else { return 0 }
+      return CGFloat(min(1, max(0, 1 - Double(secondsRemaining) / duration)))
+    }
+  }
+
   private var steppedArc: CGFloat {
-    guard clock.phase == .task, timer.duration > 0 else { return 1 }
-    return CGFloat(min(1, max(0, 1 - Double(secondsRemaining) / timer.duration)))
+    Self.steppedArc(
+      phase: clock.phase, secondsRemaining: secondsRemaining, duration: timer.duration)
   }
 
   // MARK: - Arc animation
@@ -194,7 +244,11 @@ struct CountdownRing: View {
 
     switch clock.phase {
     case .task:
-      arc = 0
+      // From wherever the clock already is, not from empty. A view that appears
+      // after the clock started — or reappears — would otherwise restart the arc
+      // from zero and under-report the elapsed part of the break for the whole
+      // remaining duration.
+      arc = CGFloat(clock.progress)
       withAnimation(.linear(duration: clock.remaining)) { arc = 1 }
     case .dismissing, .finished:
       withAnimation(.linear(duration: 0)) { arc = 1 }
@@ -263,24 +317,36 @@ struct DismissIndicatorView: View {
     .onChange(of: clock.phase) { _, _ in armDrain() }
   }
 
+  /// The fill and the shadow under it.
+  ///
+  /// The bar is the *only* countdown `.ambient` gets, and `.ambient` has no
+  /// global scrim — so at `white.opacity(0.55)` with nothing behind it, this
+  /// was light-on-nothing over a desktop the library does not own, i.e. exactly
+  /// the failure 0.55 was derived to prevent. It is opaque now and carries the
+  /// same opposing dark shadow every other light element does; the local scrim
+  /// `RichNotificationView` puts behind the countdown block is the other half.
   private var bar: some View {
     GeometryReader { geometry in
       ZStack(alignment: .leading) {
-        Capsule().fill(Color.white.opacity(0.18))
+        Capsule().fill(Color.black.opacity(0.35))
         Capsule()
-          .fill(Color.white.opacity(0.55))
+          .fill(Legibility.TextStyle.title.color)
           .frame(width: geometry.size.width * max(0, 1 - fraction))
       }
     }
     .frame(width: 180, height: 3)
+    .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
   }
 
   private var hairlineRing: some View {
     Circle()
       .trim(from: 0, to: max(0, 1 - fraction))
-      .stroke(Color.white.opacity(0.55), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+      .stroke(
+        Legibility.TextStyle.title.color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+      )
       .rotationEffect(.degrees(-90))
       .frame(width: 16, height: 16)
+      .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
   }
 
   /// Under Reduce Motion the value steps once a second, quantized off whole
