@@ -202,7 +202,12 @@ public class OverlayWindowManager {
     // Dismiss main window
     if animated {
       animateDismiss(window: window) { [weak self] in
-        self?.activeWindows.removeValue(forKey: id)
+        // Identity check: if `id` was reused (a fresh `show(id:)`) while this fade
+        // was in flight, `activeWindows[id]` now points at a newer window. A stale
+        // completion must not evict it — only remove the entry if it's still the
+        // exact window this closure was closing.
+        guard let self, self.activeWindows[id] === window else { return }
+        self.activeWindows.removeValue(forKey: id)
       }
     } else {
       window.close()
@@ -216,7 +221,9 @@ public class OverlayWindowManager {
 
     if animated {
       animateDismiss(window: blurWindow) { [weak self] in
-        self?.blurWindows.removeValue(forKey: id)
+        // Same stale-completion guard as the main window above, for the blur window.
+        guard let self, self.blurWindows[id] === blurWindow else { return }
+        self.blurWindows.removeValue(forKey: id)
       }
     } else {
       blurWindow.close()
@@ -227,9 +234,12 @@ public class OverlayWindowManager {
   /// Defensive sweep: closes any blur window left behind with no matching main window.
   /// This is a safety net for paths other than `dismiss(id:)` that might drop an
   /// `activeWindows` entry without a corresponding blur teardown. `excluding` skips the
-  /// id already being handled by `dismissBlurWindow` in this call, so an in-flight
-  /// animated close isn't raced by a second, synchronous one here.
-  private func sweepOrphanedBlurWindows(excluding excludedID: UUID? = nil) {
+  /// id already being handled by `dismissBlurWindow` in this call — not to avoid a
+  /// double-close (both window types set `isReleasedWhenClosed = false`, so a repeat
+  /// `close()` is a harmless no-op, and this sweep unceremoniously hard-closes any
+  /// *other* id's in-flight fade anyway) but purely so that id's own fade, already
+  /// under way, gets to finish on its own terms instead of being cut short here.
+  private func sweepOrphanedBlurWindows(excluding excludedID: UUID) {
     let orphanedIDs = blurWindows.keys.filter { $0 != excludedID && activeWindows[$0] == nil }
     for orphanedID in orphanedIDs {
       blurWindows[orphanedID]?.close()
