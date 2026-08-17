@@ -47,7 +47,11 @@ extension OverlayWindowManager.Configuration {
       dismissOnScreenTap: dismissOnScreenTap,
       animatePresentation: animatePresentation,
       screen: screen,
-      screenDim: 0.55,
+      // `Legibility.safeDim`, not a literal 0.55: the same number is the
+      // feathered scrim's peak opacity and the threshold above which a local
+      // scrim is redundant, and re-deriving it in three places is how two of
+      // them end up stale.
+      screenDim: Legibility.safeDim,
       takesKeyFocus: true
     )
   }
