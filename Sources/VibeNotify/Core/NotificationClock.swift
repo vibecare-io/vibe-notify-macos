@@ -107,8 +107,18 @@ public final class NotificationClock: ObservableObject {
   /// exercise, and a surface claiming otherwise is lying.
   @Published public private(set) var didCompleteTask: Bool = false
 
-  /// Bumped on every tick purely so SwiftUI redraws a view that reads
-  /// `remaining` or `progress` (both of which are computed, not published).
+  /// Bumped on every tick so that a view *observing this object* redraws while
+  /// `remaining` and `progress` (computed, not published) change underneath it.
+  ///
+  /// Read the qualifier literally: this only drives redraws for a view that has
+  /// subscribed to `objectWillChange` — i.e. one holding the clock as
+  /// `@ObservedObject` / `@StateObject`. Pulling the clock out of the
+  /// environment with `@Environment(\.notificationClock)` hands you the
+  /// *reference* and nothing more; SwiftUI invalidates on environment value
+  /// identity, and the identity here never changes for the life of the overlay,
+  /// so an environment read alone will show a frozen number. See the
+  /// `EnvironmentValues.notificationClock` doc at the bottom of this file for
+  /// the two-line pattern that works.
   @Published public private(set) var lastTick: Date
 
   private var phaseStart: Date
@@ -116,6 +126,16 @@ public final class NotificationClock: ObservableObject {
   private let onEnd: (@MainActor (UUID, Int) -> Void)?
   private var timer: Timer?
   private var wakeObserver: (any NSObjectProtocol)?
+
+  /// Whether the clock is actually ticking, as opposed to merely constructed.
+  ///
+  /// Exists because `start()` is deliberately split out of `init` (the seam that
+  /// lets tests step time by hand), which puts the single line that makes any of
+  /// this run in production — `clock?.start()` in `OverlayWindowManager.show` —
+  /// outside the reach of every clock-level test. Deleting that line would
+  /// otherwise leave the whole suite green while no countdown ever ran.
+  /// Internal, not public: this is a wiring assertion, not API.
+  var isRunning: Bool { timer != nil }
 
   // MARK: - Derived
 
@@ -268,6 +288,21 @@ public final class NotificationClock: ObservableObject {
     // Did anyone actually observe this deadline pass, or did the machine skip
     // over it? A wake notification says so outright; an enormous overshoot on
     // an otherwise 0.1s tick says the same thing.
+    //
+    // Both conditions are needed, and the `afterWake` half must not be folded
+    // into the tolerance. A short nap that straddles the deadline — asleep at
+    // t=1s on a 20s task, awake at t=21s — surfaces as an overshoot of only one
+    // second, which no tolerance can distinguish from an ordinary late tick. On
+    // tolerance alone that break would be reported *complete* to a user who
+    // slept through the whole thing. Hence: any wake with the deadline already
+    // behind us voids a task, full stop.
+    //
+    // The cost is a genuine nondeterminism on short sleeps — whether the wake
+    // handler or the next tick reaches an expired deadline first decides
+    // cancelled vs. completed, and that race is not winnable from here. The
+    // conservative side wins on purpose: understating a break the user may have
+    // finished is a small annoyance, while overstating one they slept through is
+    // the surface telling them a lie about their own health.
     let elapsedUnobserved = afterWake || now.timeIntervalSince(deadline) > Self.suspensionTolerance
 
     switch phase {
@@ -333,6 +368,41 @@ extension EnvironmentValues {
   /// defects this type exists to kill. Optional rather than an
   /// `@EnvironmentObject` on purpose: a missing environment object is a crash,
   /// and "this overlay has no countdown" is an ordinary, expected state.
+  ///
+  /// **Reading this gets you the reference, not the redraws.** `NotificationClock`
+  /// is a Combine `ObservableObject`, and SwiftUI invalidates an environment
+  /// reader only when the stored *value's* identity changes — it does not
+  /// subscribe to `objectWillChange` on your behalf. The reference injected here
+  /// is the same object for the whole life of the overlay, so a view that reads
+  /// the clock straight out of the environment and prints `clock.remaining`
+  /// renders the initial number once and then sits frozen while the countdown
+  /// runs. Nothing about ownership, cancellation or dismissal depends on this —
+  /// those are the manager's, and they work regardless — but anything that
+  /// *draws* the countdown must hand the reference to a child that observes it:
+  ///
+  /// ```swift
+  /// struct MyAlert: View {
+  ///   @Environment(\.notificationClock) private var clock
+  ///   var body: some View {
+  ///     if let clock {
+  ///       CountdownView(clock: clock)   // observes, so it redraws each tick
+  ///     }
+  ///   }
+  /// }
+  ///
+  /// struct CountdownView: View {
+  ///   @ObservedObject var clock: NotificationClock
+  ///   var body: some View {
+  ///     Text("\(Int(clock.remaining.rounded(.up)))")   // repaints per tick
+  ///   }
+  /// }
+  /// ```
+  ///
+  /// The one-level indirection is the whole trick: `@ObservedObject` is what
+  /// subscribes to `objectWillChange`, which is what `lastTick` is bumped for.
+  /// (Converting this type to the `@Observable` macro would remove the need for
+  /// the wrapper view; that is a deliberate open design question, not an
+  /// oversight — see the Task 6 report.)
   public var notificationClock: NotificationClock? {
     get { self[NotificationClockEnvironmentKey.self] }
     set { self[NotificationClockEnvironmentKey.self] = newValue }

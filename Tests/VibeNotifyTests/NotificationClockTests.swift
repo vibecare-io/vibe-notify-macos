@@ -363,6 +363,61 @@ struct NotificationClockEngineTests {
     #expect(clock.phase == .finished)
   }
 
+  /// The other half of sleep safety, and the half with no wake notification to
+  /// lean on: `NSWorkspace.didWakeNotification` does not fire for every form of
+  /// suspension (App Nap, a wedged main thread), so a tick arriving absurdly
+  /// late must be read the same way as a wake. Overshoot 6s against a 0.1s tick
+  /// interval is not a late tick, it is a process that was not running.
+  ///
+  /// Pinning test: this heuristic is one careless edit from silently inverting,
+  /// and inverted it reports breaks the user slept through as completed.
+  @Test func tickArrivingLongAfterTheDeadlineCancelsTheTaskWithoutAWake() throws {
+    let time = FakeTime()
+    let recorder = EndRecorder()
+    let clock = try makeClock(
+      Countdown(
+        task: TaskTimer(duration: 20, unitLabel: "seconds", completionLabel: "Break complete"),
+        autoDismiss: StandardNotification.AutoDismiss(delay: 3)
+      ),
+      time: time,
+      recorder: recorder
+    )
+
+    // Deadline + 6s, comfortably past `suspensionTolerance` (5s). No wake.
+    time.advance(26)
+    clock.tick()
+
+    #expect(clock.phase == .cancelled)
+    #expect(clock.didCompleteTask == false, "an unobserved deadline is not a completion")
+    #expect(recorder.ends.count == 1, "the stale window must still come down")
+  }
+
+  /// The complementary bound: just inside the tolerance is an ordinary late
+  /// tick — a busy main thread, not a suspended process — and must complete the
+  /// task normally. Without this, widening the tolerance to infinity (or
+  /// deleting the comparison outright) would go unnoticed.
+  @Test func tickArrivingJustInsideTheToleranceCompletesTheTaskNormally() throws {
+    let time = FakeTime()
+    let start = time.now
+    let clock = try makeClock(
+      Countdown(
+        task: TaskTimer(duration: 20, unitLabel: "seconds", completionLabel: "Break complete"),
+        autoDismiss: StandardNotification.AutoDismiss(delay: 3)
+      ),
+      time: time
+    )
+
+    // Deadline + 4.9s, just inside `suspensionTolerance` (5s).
+    time.advance(24.9)
+    clock.tick()
+
+    #expect(clock.phase == .dismissing)
+    #expect(clock.didCompleteTask, "a merely-late tick must not void the exercise")
+    #expect(
+      clock.deadline == start.addingTimeInterval(23),
+      "the dismiss phase still arms from the task's own deadline, not from the late tick")
+  }
+
   /// A wake that lands *before* the deadline changes nothing — waking up is
   /// not a reason to cut a running task short.
   @Test func wakeBeforeDeadlineIsANoOp() throws {
@@ -442,6 +497,33 @@ struct OverlayClockOwnershipTests {
     #expect(clock.phase == .cancelled, "the clock itself must be stopped, not just forgotten")
 
     window?.close()
+  }
+
+  /// `show` must actually *start* the clock it installs, not merely construct
+  /// it. `start()` is split out of `init` so tests can step time by hand, and
+  /// that seam puts the one line which makes any of this run in production —
+  /// `clock?.start()` — outside every clock-level test: delete it and a suite
+  /// that never calls `start()` stays entirely green while no countdown in the
+  /// shipping app ever ticks. This test is the tripwire for that line.
+  /// (Verified by deleting it: this test, and only this test, fails.)
+  @Test func showStartsTheClockItInstalls() throws {
+    let manager = OverlayWindowManager.shared
+    let id = UUID()
+
+    _ = manager.show(
+      id: id,
+      configuration: .init(animatePresentation: false),
+      countdown: Countdown(
+        task: TaskTimer(duration: 20, unitLabel: "seconds", completionLabel: "Break complete"))
+    ) {
+      EmptyView()
+    }
+
+    let clock = try #require(manager.clocks[id])
+    #expect(clock.isRunning, "show() must start the clock, not just build it")
+
+    manager.dismiss(id: id, animated: false)
+    #expect(clock.isRunning == false, "dismiss must stop the ticking, not just drop the reference")
   }
 
   /// No countdown, no clock — `show`'s existing shape must stay exactly as
