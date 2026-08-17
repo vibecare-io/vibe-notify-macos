@@ -27,8 +27,10 @@ public class OverlayWindowManager {
   public static let shared = OverlayWindowManager()
 
   // MARK: - Properties
-  private var activeWindows: [UUID: NSWindow] = [:]
-  private var blurWindows: [UUID: NSWindow] = [:]
+  // Deliberately `internal`, not `private`: the test target observes these via
+  // `@testable import` to verify window teardown without widening public API.
+  var activeWindows: [UUID: NSWindow] = [:]
+  var blurWindows: [UUID: NSWindow] = [:]
 
   // MARK: - Window Level Presets
   public enum WindowLevel {
@@ -188,19 +190,14 @@ public class OverlayWindowManager {
 
   /// Dismiss a specific overlay window
   public func dismiss(id: UUID, animated: Bool = true) {
-    guard let window = activeWindows[id] else { return }
+    // Teardown that must always happen — regardless of whether a main window still
+    // exists for this id — belongs above the guard below. The blur window has no
+    // owner but this manager, so if we bail out early on a missing main window (id
+    // reuse, prior partial teardown, etc.) it is orphaned with no route to close.
+    dismissBlurWindow(id: id, animated: animated)
+    sweepOrphanedBlurWindows(excluding: id)
 
-    // Dismiss blur window if it exists
-    if let blurWindow = blurWindows[id] {
-      if animated {
-        animateDismiss(window: blurWindow) { [weak self] in
-          self?.blurWindows.removeValue(forKey: id)
-        }
-      } else {
-        blurWindow.close()
-        blurWindows.removeValue(forKey: id)
-      }
-    }
+    guard let window = activeWindows[id] else { return }
 
     // Dismiss main window
     if animated {
@@ -210,6 +207,33 @@ public class OverlayWindowManager {
     } else {
       window.close()
       activeWindows.removeValue(forKey: id)
+    }
+  }
+
+  /// Tears down the blur window for `id`, if any, independently of the main window's state.
+  private func dismissBlurWindow(id: UUID, animated: Bool) {
+    guard let blurWindow = blurWindows[id] else { return }
+
+    if animated {
+      animateDismiss(window: blurWindow) { [weak self] in
+        self?.blurWindows.removeValue(forKey: id)
+      }
+    } else {
+      blurWindow.close()
+      blurWindows.removeValue(forKey: id)
+    }
+  }
+
+  /// Defensive sweep: closes any blur window left behind with no matching main window.
+  /// This is a safety net for paths other than `dismiss(id:)` that might drop an
+  /// `activeWindows` entry without a corresponding blur teardown. `excluding` skips the
+  /// id already being handled by `dismissBlurWindow` in this call, so an in-flight
+  /// animated close isn't raced by a second, synchronous one here.
+  private func sweepOrphanedBlurWindows(excluding excludedID: UUID? = nil) {
+    let orphanedIDs = blurWindows.keys.filter { $0 != excludedID && activeWindows[$0] == nil }
+    for orphanedID in orphanedIDs {
+      blurWindows[orphanedID]?.close()
+      blurWindows.removeValue(forKey: orphanedID)
     }
   }
 
