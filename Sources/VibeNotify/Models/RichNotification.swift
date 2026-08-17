@@ -41,6 +41,49 @@ public struct RichNotification {
         return CGSize(width: pointSize, height: pointSize)
       }
     }
+
+    /// How much of an alert's height the illustration may claim before it is
+    /// scaled down. It is meant to be the largest element on the surface, not
+    /// the only one.
+    static let maximumHeightFraction: CGFloat = 0.5
+
+    /// The horizontal breathing room the surface keeps either side of the
+    /// illustration — `RichNotificationView`'s content padding, both sides.
+    static let horizontalInset: CGFloat = 56
+
+    /// This illustration scaled down, preserving aspect ratio, so it cannot
+    /// evict the rest of the alert from a window it does not fit in.
+    ///
+    /// **This exists because clipping alone produced a blank alert.** A
+    /// plugin-supplied 600×500 `NSImage` in a 380×210 `.ambient` window pushed
+    /// the title, the message and everything below them outside the clip
+    /// entirely: the measured result was *zero* inked pixels — not a truncated
+    /// alert, an empty one. `.image` is specifically the case for
+    /// already-fetched images of arbitrary caller-chosen size, so that is a
+    /// reachable path rather than a synthetic one.
+    ///
+    /// Only ever scales **down**. A small illustration in a large window is
+    /// exactly what the caller asked for, and growing it would silently
+    /// override a deliberate choice — a 40pt symbol stays 40pt on a 5K display.
+    public func fitted(in available: CGSize) -> Illustration {
+      let natural = pixelSize
+      guard available.width > 0, available.height > 0, natural.width > 0, natural.height > 0
+      else { return self }
+
+      let widthLimit = max(0, available.width - Self.horizontalInset)
+      let heightLimit = available.height * Self.maximumHeightFraction
+      let scale = min(1, min(widthLimit / natural.width, heightLimit / natural.height))
+      guard scale < 1 else { return self }
+
+      switch self {
+      case .svg(let source, let size):
+        return .svg(source, size: CGSize(width: size.width * scale, height: size.height * scale))
+      case .image(let image, let size):
+        return .image(image, size: CGSize(width: size.width * scale, height: size.height * scale))
+      case .symbol(let name, let pointSize, let colour):
+        return .symbol(name, pointSize: pointSize * scale, color: colour)
+      }
+    }
   }
 
   // MARK: - Stored

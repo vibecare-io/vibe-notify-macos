@@ -355,6 +355,75 @@ struct LegibilityTests {
     #expect(RichNotification(taskTimer: timer(), mode: .interrupt).effectiveTaskTimer != nil)
   }
 
+  /// `completionState` must read `effectiveTaskTimer`, not the stored
+  /// `taskTimer`.
+  ///
+  /// Unreachable through the renderer today — an `.ambient` alert gets no task
+  /// phase, so `didCompleteTask` cannot become true for one — which is exactly
+  /// why the guard is easy to get wrong and why nothing caught it: every other
+  /// `completionState` test uses `.interrupt`, where the two accessors agree.
+  /// Reverting the guard to `taskTimer` leaves the rest of the suite green and
+  /// lets an ambient toast announce "Break complete" for a break that was never
+  /// offered.
+  @Test func anAmbientAlertNeverClaimsCompletionForATimerItNeverRan() {
+    let ambient = RichNotification(taskTimer: timer(), mode: .ambient)
+
+    #expect(
+      ambient.completionState(phase: .dismissing, didCompleteTask: true, completedEarly: false)
+        == .none)
+    #expect(
+      ambient.completionState(phase: .dismissing, didCompleteTask: true, completedEarly: true)
+        == .none)
+    // The same model in `.interrupt` does claim it — so the assertion above is
+    // about the mode, not about `completionState` being inert.
+    #expect(
+      RichNotification(taskTimer: timer(), mode: .interrupt)
+        .completionState(phase: .dismissing, didCompleteTask: true, completedEarly: false)
+        == .completed(label: "Break complete"))
+  }
+
+  // MARK: - Illustration fitting
+
+  /// An illustration too large for its window is scaled down, preserving aspect
+  /// ratio, rather than evicting everything else. Measured consequence of not
+  /// doing this: a 600×500 image in a 380×210 ambient window rendered zero
+  /// inked pixels.
+  @Test func anOversizedIllustrationIsScaledDownPreservingAspect() {
+    let natural = CGSize(width: 600, height: 500)
+    let fitted = RichNotification.Illustration
+      .image(NSImage(size: natural), size: natural)
+      .fitted(in: CGSize(width: 380, height: 210))
+      .pixelSize
+
+    #expect(fitted.width < natural.width)
+    #expect(fitted.height <= 210 * RichNotification.Illustration.maximumHeightFraction)
+    #expect(fitted.width <= 380 - RichNotification.Illustration.horizontalInset)
+    // Aspect ratio preserved.
+    #expect(abs(fitted.width / fitted.height - natural.width / natural.height) < 0.01)
+    // And it leaves room for the rest of the alert, which is the entire point.
+    #expect(fitted.height < 210 * 0.75)
+  }
+
+  /// It never scales **up**. A small illustration in a large window is what the
+  /// caller asked for, and enlarging it would silently override a deliberate
+  /// choice — so an interrupt on a big screen renders exactly what was passed.
+  @Test func anIllustrationThatAlreadyFitsIsLeftAlone() {
+    let small = RichNotification.Illustration.symbol("eye", pointSize: 48, color: nil)
+    #expect(small.fitted(in: CGSize(width: 1728, height: 1117)).pixelSize.width == 48)
+
+    let plate = CGSize(width: 220, height: 150)
+    let svg = RichNotification.Illustration.svg(.filePath("/tmp/eye.svg"), size: plate)
+    #expect(svg.fitted(in: CGSize(width: 1728, height: 1117)).pixelSize == plate)
+  }
+
+  /// A degenerate proposed size (a view measured before layout) must not
+  /// collapse the illustration to nothing.
+  @Test func anUnknownAvailableSizeLeavesTheIllustrationUntouched() {
+    let plate = CGSize(width: 220, height: 150)
+    let svg = RichNotification.Illustration.svg(.filePath("/tmp/eye.svg"), size: plate)
+    #expect(svg.fitted(in: .zero).pixelSize == plate)
+  }
+
   /// An ambient alert with *only* a task timer has nothing left to time, so it
   /// gets no clock rather than an inert one.
   @Test func anAmbientAlertWithOnlyATaskTimerGetsNoClock() {
@@ -499,23 +568,90 @@ struct RichRendererPixelTests {
     let perPixelArea = scale > 0 ? 1 / (scale * scale) : 1
     areas.scale = scale
 
-    for x in 0..<rep.pixelsWide {
-      for y in 0..<rep.pixelsHigh {
-        guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-        let a = Double(colour.alphaComponent)
-        let l =
-          0.2126 * Double(colour.redComponent) + 0.7152 * Double(colour.greenComponent)
-          + 0.0722 * Double(colour.blueComponent)
-        areas.total += perPixelArea
-        areas.alphaSum += a * perPixelArea
-        if a > 0.5 { areas.opaque += perPixelArea }
-        if a > 0.3 { areas.ink += perPixelArea }
-        if a > 0.3 && l > 0.85 { areas.light += perPixelArea }
-        if a > 0.9 && l > 0.85 { areas.solidLight += perPixelArea }
-        if a > 0.02 && a < 0.5 && l < 0.3 { areas.darkHalo += perPixelArea }
+    accumulate(rep, perPixelArea: perPixelArea, into: &areas)
+    return areas
+  }
+
+  /// Walks the bitmap once, reading `bitmapData` directly.
+  ///
+  /// Not a micro-optimisation. The previous version called
+  /// `NSBitmapImageRep.colorAt(x:y:)` per pixel and then `usingColorSpace` on
+  /// the result — two Objective-C message sends and an `NSColor` allocation for
+  /// every pixel, which for the eight 460×520 renders in the accessibility
+  /// matrix is about 7.7 million of each. That single test took 8.6s of a 21.4s
+  /// suite, which is slow enough that people stop running it.
+  ///
+  /// Falls back to `colorAt` for any format this does not understand, rather
+  /// than silently measuring garbage.
+  private func accumulate(
+    _ rep: NSBitmapImageRep, perPixelArea: Double, into areas: inout Areas
+  ) {
+    guard let base = rep.bitmapData,
+      rep.bitsPerSample == 8,
+      rep.samplesPerPixel == 4,
+      !rep.isPlanar
+    else {
+      for x in 0..<rep.pixelsWide {
+        for y in 0..<rep.pixelsHigh {
+          guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+          accumulate(
+            red: Double(colour.redComponent), green: Double(colour.greenComponent),
+            blue: Double(colour.blueComponent), alpha: Double(colour.alphaComponent),
+            perPixelArea: perPixelArea, into: &areas)
+        }
+      }
+      return
+    }
+
+    let format = rep.bitmapFormat
+    let alphaFirst = format.contains(.alphaFirst)
+    // Absence of the flag means the samples *are* premultiplied. `colorAt`
+    // undoes that for you; reading raw bytes does not, and skipping the
+    // division would make every translucent pixel read as darker than it is —
+    // which is precisely the distinction `darkHalo` and `solidLight` turn on.
+    let premultiplied = !format.contains(.alphaNonpremultiplied)
+    let bytesPerRow = rep.bytesPerRow
+    let bytesPerPixel = rep.bitsPerPixel / 8
+
+    for y in 0..<rep.pixelsHigh {
+      let row = base + y * bytesPerRow
+      for x in 0..<rep.pixelsWide {
+        let pixel = row + x * bytesPerPixel
+        let a: Double
+        let r: Double
+        let g: Double
+        let b: Double
+        if alphaFirst {
+          a = Double(pixel[0]) / 255
+          r = Double(pixel[1]) / 255
+          g = Double(pixel[2]) / 255
+          b = Double(pixel[3]) / 255
+        } else {
+          r = Double(pixel[0]) / 255
+          g = Double(pixel[1]) / 255
+          b = Double(pixel[2]) / 255
+          a = Double(pixel[3]) / 255
+        }
+        let divisor = (premultiplied && a > 0) ? a : 1
+        accumulate(
+          red: r / divisor, green: g / divisor, blue: b / divisor, alpha: a,
+          perPixelArea: perPixelArea, into: &areas)
       }
     }
-    return areas
+  }
+
+  private func accumulate(
+    red: Double, green: Double, blue: Double, alpha: Double,
+    perPixelArea: Double, into areas: inout Areas
+  ) {
+    let l = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    areas.total += perPixelArea
+    areas.alphaSum += alpha * perPixelArea
+    if alpha > 0.5 { areas.opaque += perPixelArea }
+    if alpha > 0.3 { areas.ink += perPixelArea }
+    if alpha > 0.3 && l > 0.85 { areas.light += perPixelArea }
+    if alpha > 0.9 && l > 0.85 { areas.solidLight += perPixelArea }
+    if alpha > 0.02 && alpha < 0.5 && l < 0.3 { areas.darkHalo += perPixelArea }
   }
 
   private func clock(_ countdown: Countdown) -> NotificationClock? {
@@ -969,11 +1105,13 @@ struct OverlayGeometryTests {
       RichNotificationView(
         notification: notification, reduceMotion: true, reduceTransparency: false, onDismiss: {})
     }
+    // `defer`, because `#require` throws: without it a failed expectation
+    // leaks a window into a process-wide singleton that every later test in
+    // this suite then shows into.
+    defer { manager.dismiss(id: id, animated: false) }
     let window = try #require(manager.activeWindows[id])
     pump()
-    let frame = window.frame
-    manager.dismiss(id: id, animated: false)
-    return frame
+    return window.frame
   }
 
   /// An `.ambient` window keeps the size its caller asked for.
@@ -1012,22 +1150,38 @@ struct OverlayGeometryTests {
       "the window left its screen: \(frame) is not inside \(screen.frame)")
   }
 
-  /// Content that cannot possibly fit is clipped, not granted a larger window.
-  /// A 600×500 illustration in a 380×210 window used to produce a 656×588
-  /// window.
-  @Test func oversizedContentDoesNotEnlargeAnAmbientWindow() throws {
+  /// Content that cannot possibly fit does not enlarge the window — **and the
+  /// alert is still legible afterwards**, which is the half this test was
+  /// missing.
+  ///
+  /// The frame assertions alone passed against a window that was correctly
+  /// sized and *completely empty*: a 600×500 image in a 380×210 window pushed
+  /// the title and message outside the clip, and the render measured zero inked
+  /// pixels. That is the same shape of gap twice fixed elsewhere in this suite —
+  /// an assertion aimed at the thing that used to be broken rather than at the
+  /// thing that matters.
+  @Test func oversizedContentIsScaledDownRatherThanEvictingTheAlert() throws {
+    let notification = RichNotification(
+      illustration: .image(
+        NSImage(size: CGSize(width: 600, height: 500)), size: CGSize(width: 600, height: 500)),
+      title: "Synced",
+      message: Self.longMessage,
+      mode: .ambient)
+
     let frame = try settledFrame(
-      RichNotification(
-        illustration: .image(
-          NSImage(size: CGSize(width: 600, height: 500)), size: CGSize(width: 600, height: 500)),
-        title: "Synced",
-        message: Self.longMessage,
-        mode: .ambient),
+      notification,
       configuration: .ambient(
         position: .bottomRight, width: 380, height: 210, animatePresentation: false))
 
     #expect(abs(frame.width - 380) <= 1, "width drifted to \(frame.width)")
     #expect(abs(frame.height - 210) <= 1, "height drifted to \(frame.height)")
+
+    // …and the window is not blank.
+    let drawn = RichRendererPixelTests().render(
+      notification, size: CGSize(width: 380, height: 210))
+    #expect(
+      drawn.ink > 500,
+      "an oversized illustration must scale down, not evict the alert; drew \(drawn.ink)pt²")
   }
 
   /// **`.interrupt` was affected too**, and this is the assertion that says so.
@@ -1072,9 +1226,9 @@ struct OverlayGeometryTests {
         notification: StandardNotification(title: "Synced", message: Self.longMessage),
         onDismiss: {})
     }
+    defer { manager.dismiss(id: id, animated: false) }
     let window = try #require(manager.activeWindows[id])
     pump()
     #expect(abs(window.frame.height - 210) <= 1)
-    manager.dismiss(id: id, animated: false)
   }
 }

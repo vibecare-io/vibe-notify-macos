@@ -114,6 +114,47 @@ public struct RichNotificationView: View {
   // MARK: - Body
 
   public var body: some View {
+    // The `GeometryReader` is doing two jobs, both load-bearing.
+    //
+    // **One: it stops this view resizing the window it is hosted in.**
+    // `OverlayWindowManager.createWindow` builds a borderless `NSWindow` at a
+    // caller-chosen frame and installs an `NSHostingView` as its `contentView`.
+    // That hosting view publishes an `intrinsicContentSize` derived from the
+    // SwiftUI content, and AppKit resolves the resulting constraint by resizing
+    // *the window* — one run-loop pass after `show()` returns, which is why the
+    // frame is still correct when `show()` hands back. Measured through the
+    // public API before this existed:
+    //
+    //   .ambient, long message       (1328, 20, 380, 210) -> (1328, -2059, 380, 2289)
+    //   .ambient, 600x500 image      (1328, 20, 380, 210) -> (1328,  -358, 656,  588)
+    //   .interrupt, long message     the screen, 1728x1117 -> (0, -27049, 1728, 28166)
+    //
+    // Note the third row: the intuitive reading — "only fixed-size ambient
+    // windows are affected, interrupt asks for the whole screen anyway" — is
+    // wrong. Interrupt blew up by a factor of twenty-five, invisibly, because
+    // the window is transparent; it just centred the content thousands of
+    // points off-screen. Any fix scoped to `.ambient` would have left that in.
+    //
+    // A `GeometryReader` is the lever because it is greedy and incurious: it
+    // accepts whatever size it is proposed and never reports its children's
+    // requirements upward, so the hosting view stops having an opinion about
+    // how big the window should be.
+    //
+    // **Two: it hands the content the size it must fit into**, which is what
+    // lets an oversized illustration scale down instead of evicting everything
+    // else. See `Illustration.fitted(in:)`.
+    GeometryReader { proxy in
+      body(in: proxy.size)
+        .frame(width: proxy.size.width, height: proxy.size.height)
+    }
+    // Content that still does not fit is cut off rather than granted a bigger
+    // window. With the illustration bounded above, what gets cut is the tail of
+    // a long message — not, as it once was, the entire alert.
+    .clipped()
+    .onAppear(perform: enter)
+  }
+
+  private func body(in available: CGSize) -> some View {
     ZStack {
       // `.interrupt` under Reduce Transparency: the backdrop window's blur is
       // dropped, and this is the opaque black that replaces it. Drawn in the
@@ -136,14 +177,11 @@ public struct RichNotificationView: View {
         .onTapGesture { dismissByCancelling() }
         .bleedingToScreenEdges(bleeds)
 
-      content
+      content(in: available)
         .scaleEffect(entranceScale)
         .opacity(entranceOpacity)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    // Load-bearing. Without it this view resizes the window it is hosted in.
-    .sizeDecoupledFromHost()
-    .onAppear(perform: enter)
   }
 
   /// Whether this alert's window *is* the screen.
@@ -155,9 +193,9 @@ public struct RichNotificationView: View {
   /// nothing to gain.
   private var bleeds: Bool { notification.mode == .interrupt }
 
-  private var content: some View {
+  private func content(in available: CGSize) -> some View {
     VStack(spacing: 22) {
-      illustration
+      illustration(in: available)
 
       // Title and message share one scrim: they are one text block, and two
       // adjacent gradients would meet in a seam that reads as an edge.
@@ -170,10 +208,9 @@ public struct RichNotificationView: View {
             // Refuses vertical truncation, so a long message wraps in full
             // instead of being clipped to one line by a tight parent.
             //
-            // This is safe *because* of `sizeDecoupledFromHost()` below, and was
-            // not before it: the modifier makes height a required function of
-            // width, and that requirement used to propagate out to the window.
-            // See the write-up on `sizeDecoupledFromHost`.
+            // Safe *because* of the `GeometryReader` in `body`, and not before
+            // it: this modifier makes height a required function of width, and
+            // that requirement used to propagate out and resize the window.
             styled(Text(message).font(.system(size: 15)), as: styles.message)
               .fixedSize(horizontal: false, vertical: true)
           }
@@ -225,9 +262,12 @@ public struct RichNotificationView: View {
   // MARK: - Illustration
 
   @ViewBuilder
-  private var illustration: some View {
+  private func illustration(in available: CGSize) -> some View {
     if let illustration = notification.illustration {
-      illustrationBody(illustration)
+      // Bounded against the space actually available. Unbounded, a large
+      // caller-supplied image pushed every other element outside the clip and
+      // the alert rendered completely blank.
+      illustrationBody(illustration.fitted(in: available))
         // A dark drop shadow, never a glow. The existing SVG renderer applies a
         // coloured glow in dark mode, which reinforces the illustration against
         // dark backdrops and erases it against light ones — the same mistake as
@@ -359,48 +399,6 @@ public struct RichNotificationView: View {
 // MARK: - Window geometry
 
 extension View {
-  /// Stops this view's size requirements from propagating out to the `NSWindow`
-  /// hosting it.
-  ///
-  /// **This fixes a real, reproduced defect, and it is not the one it looks
-  /// like.** `OverlayWindowManager.createWindow` builds a borderless `NSWindow`
-  /// at a caller-chosen frame and installs an `NSHostingView` as its
-  /// `contentView`. That hosting view publishes an `intrinsicContentSize`
-  /// derived from the SwiftUI content, and AppKit resolves the resulting
-  /// constraint by resizing **the window** — one run-loop pass after `show()`
-  /// returns, which is why the frame is still correct when `show()` hands back.
-  ///
-  /// Measured through the public API before this modifier existed:
-  ///
-  /// | case | requested | settled at |
-  /// | --- | --- | --- |
-  /// | `.ambient`, long message | `(1328, 20, 380, 210)` | `(1328, -2059, 380, 2289)` |
-  /// | `.ambient`, 600×500 illustration | `(1328, 20, 380, 210)` | `(1328, -358, 656, 588)` |
-  /// | `.interrupt`, long message | the screen, `1728×1117` | `(0, -27049, 1728, 28166)` |
-  ///
-  /// Note the third row. The obvious reading — "only fixed-size ambient windows
-  /// are affected, interrupt asks for the whole screen anyway" — is wrong:
-  /// interrupt blew up by a factor of twenty-five, which does not show up as a
-  /// misplaced window because the window is transparent, but does silently
-  /// centre the content thousands of points off-screen. Any fix scoped to
-  /// `.ambient` would have left that in place.
-  ///
-  /// A `GeometryReader` is the lever because it is *greedy and incurious*: it
-  /// accepts whatever size it is proposed and never reports its children's
-  /// requirements upward, so the hosting view stops having an opinion about how
-  /// big the window should be. `.clipped()` then makes the consequence honest —
-  /// content that does not fit the window the caller asked for is cut off,
-  /// rather than being granted a bigger window.
-  ///
-  /// `StandardNotificationView` never hit this only because nothing in it
-  /// demands a size the way `.fixedSize` and a fixed-frame illustration do.
-  func sizeDecoupledFromHost() -> some View {
-    GeometryReader { proxy in
-      self.frame(width: proxy.size.width, height: proxy.size.height)
-    }
-    .clipped()
-  }
-
   /// `ignoresSafeArea()`, but only where a safe area is something this alert has
   /// any business crossing.
   ///
@@ -412,9 +410,9 @@ extension View {
   /// Recorded because the first diagnosis of the window-resizing defect blamed
   /// this modifier: it is **not** the cause, and removing it outright changed
   /// nothing (verified — the ambient window still settled at
-  /// `(1328, -2059, 380, 2289)` with both calls deleted). `sizeDecoupledFromHost`
-  /// above is the actual fix. This stays conditional on its own smaller merits:
-  /// unconditionally it was stating an intent that is only true for one mode.
+  /// `(1328, -2059, 380, 2289)` with both calls deleted). The `GeometryReader`
+  /// in `body` is the actual fix. This stays conditional on its own smaller
+  /// merits: unconditionally it was stating an intent true for only one mode.
   @ViewBuilder
   func bleedingToScreenEdges(_ bleeds: Bool) -> some View {
     if bleeds {
