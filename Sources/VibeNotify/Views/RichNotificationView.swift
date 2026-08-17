@@ -120,7 +120,7 @@ public struct RichNotificationView: View {
       // content window because `Configuration.screenDim` clamps at 0.95 —
       // "solid" has to be genuinely solid, and here it is.
       if notification.mode == .interrupt, reducesTransparency {
-        Color.black.ignoresSafeArea()
+        Color.black.bleedingToScreenEdges(bleeds)
       }
 
       // The full-bleed dismissal target, *below* the content so the buttons
@@ -134,15 +134,26 @@ public struct RichNotificationView: View {
       Color.clear
         .contentShape(Rectangle())
         .onTapGesture { dismissByCancelling() }
-        .ignoresSafeArea()
+        .bleedingToScreenEdges(bleeds)
 
       content
         .scaleEffect(entranceScale)
         .opacity(entranceOpacity)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    // Load-bearing. Without it this view resizes the window it is hosted in.
+    .sizeDecoupledFromHost()
     .onAppear(perform: enter)
   }
+
+  /// Whether this alert's window *is* the screen.
+  ///
+  /// `.interrupt` is presented full-screen with `width`/`height` left `nil`, so
+  /// bleeding past the safe area is exactly right — the scrim must reach the
+  /// menu bar and the notch, not stop short of them. `.ambient` is a fixed-size
+  /// window the caller sized, where there is no screen edge to reach and
+  /// nothing to gain.
+  private var bleeds: Bool { notification.mode == .interrupt }
 
   private var content: some View {
     VStack(spacing: 22) {
@@ -156,6 +167,13 @@ public struct RichNotificationView: View {
             styled(Text(title).font(.system(size: 26, weight: .semibold)), as: styles.title)
           }
           if let message = notification.message {
+            // Refuses vertical truncation, so a long message wraps in full
+            // instead of being clipped to one line by a tight parent.
+            //
+            // This is safe *because* of `sizeDecoupledFromHost()` below, and was
+            // not before it: the modifier makes height a required function of
+            // width, and that requirement used to propagate out to the window.
+            // See the write-up on `sizeDecoupledFromHost`.
             styled(Text(message).font(.system(size: 15)), as: styles.message)
               .fixedSize(horizontal: false, vertical: true)
           }
@@ -334,6 +352,75 @@ public struct RichNotificationView: View {
     case .dismiss:
       button.action()
       onDismiss()
+    }
+  }
+}
+
+// MARK: - Window geometry
+
+extension View {
+  /// Stops this view's size requirements from propagating out to the `NSWindow`
+  /// hosting it.
+  ///
+  /// **This fixes a real, reproduced defect, and it is not the one it looks
+  /// like.** `OverlayWindowManager.createWindow` builds a borderless `NSWindow`
+  /// at a caller-chosen frame and installs an `NSHostingView` as its
+  /// `contentView`. That hosting view publishes an `intrinsicContentSize`
+  /// derived from the SwiftUI content, and AppKit resolves the resulting
+  /// constraint by resizing **the window** — one run-loop pass after `show()`
+  /// returns, which is why the frame is still correct when `show()` hands back.
+  ///
+  /// Measured through the public API before this modifier existed:
+  ///
+  /// | case | requested | settled at |
+  /// | --- | --- | --- |
+  /// | `.ambient`, long message | `(1328, 20, 380, 210)` | `(1328, -2059, 380, 2289)` |
+  /// | `.ambient`, 600×500 illustration | `(1328, 20, 380, 210)` | `(1328, -358, 656, 588)` |
+  /// | `.interrupt`, long message | the screen, `1728×1117` | `(0, -27049, 1728, 28166)` |
+  ///
+  /// Note the third row. The obvious reading — "only fixed-size ambient windows
+  /// are affected, interrupt asks for the whole screen anyway" — is wrong:
+  /// interrupt blew up by a factor of twenty-five, which does not show up as a
+  /// misplaced window because the window is transparent, but does silently
+  /// centre the content thousands of points off-screen. Any fix scoped to
+  /// `.ambient` would have left that in place.
+  ///
+  /// A `GeometryReader` is the lever because it is *greedy and incurious*: it
+  /// accepts whatever size it is proposed and never reports its children's
+  /// requirements upward, so the hosting view stops having an opinion about how
+  /// big the window should be. `.clipped()` then makes the consequence honest —
+  /// content that does not fit the window the caller asked for is cut off,
+  /// rather than being granted a bigger window.
+  ///
+  /// `StandardNotificationView` never hit this only because nothing in it
+  /// demands a size the way `.fixedSize` and a fixed-frame illustration do.
+  func sizeDecoupledFromHost() -> some View {
+    GeometryReader { proxy in
+      self.frame(width: proxy.size.width, height: proxy.size.height)
+    }
+    .clipped()
+  }
+
+  /// `ignoresSafeArea()`, but only where a safe area is something this alert has
+  /// any business crossing.
+  ///
+  /// `.interrupt` owns the whole screen and its backdrop must reach the menu bar
+  /// and the notch rather than stopping short of them. `.ambient` is a
+  /// fixed-size window the caller positioned, where there is no screen edge to
+  /// reach.
+  ///
+  /// Recorded because the first diagnosis of the window-resizing defect blamed
+  /// this modifier: it is **not** the cause, and removing it outright changed
+  /// nothing (verified — the ambient window still settled at
+  /// `(1328, -2059, 380, 2289)` with both calls deleted). `sizeDecoupledFromHost`
+  /// above is the actual fix. This stays conditional on its own smaller merits:
+  /// unconditionally it was stating an intent that is only true for one mode.
+  @ViewBuilder
+  func bleedingToScreenEdges(_ bleeds: Bool) -> some View {
+    if bleeds {
+      ignoresSafeArea()
+    } else {
+      self
     }
   }
 }
