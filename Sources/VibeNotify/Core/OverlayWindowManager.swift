@@ -77,31 +77,37 @@ public class OverlayWindowManager {
 
   // MARK: - Configuration
   public struct Configuration {
-    let presentationMode: PresentationMode
-    let position: WindowPosition?
-    let width: CGFloat?
-    let height: CGFloat?
-    let windowLevel: WindowLevel
-    let backgroundColor: NSColor
-    let isTransparent: Bool
-    let ignoresMouseEvents: Bool
-    let isMoveable: Bool
-    let alwaysOnTop: Bool
-    let transparent: Bool
-    let transparentMaterial: NSVisualEffectView.Material
-    let windowOpacity: CGFloat
-    let screenBlur: Bool
-    let screenBlurMaterial: NSVisualEffectView.Material
-    let screenBlurIntensity: ScreenBlurIntensity?
-    let dismissOnScreenTap: Bool
-    let animatePresentation: Bool
-    let screen: NSScreen?
+    // Deliberately `public`, not `internal`: every property is `let`, so this
+    // widening exposes no new mutability, only the ability to read a
+    // `Configuration` back after building it. Without it, a caller can only
+    // build a `Configuration`, never inspect one — which is why the consuming
+    // client hand-writes full memberwise literals instead of deriving one
+    // from a base (e.g. `Configuration.interrupt()`) and adjusting a field.
+    public let presentationMode: PresentationMode
+    public let position: WindowPosition?
+    public let width: CGFloat?
+    public let height: CGFloat?
+    public let windowLevel: WindowLevel
+    public let backgroundColor: NSColor
+    public let isTransparent: Bool
+    public let ignoresMouseEvents: Bool
+    public let isMoveable: Bool
+    public let alwaysOnTop: Bool
+    public let transparent: Bool
+    public let transparentMaterial: NSVisualEffectView.Material
+    public let windowOpacity: CGFloat
+    public let screenBlur: Bool
+    public let screenBlurMaterial: NSVisualEffectView.Material
+    public let screenBlurIntensity: ScreenBlurIntensity?
+    public let dismissOnScreenTap: Bool
+    public let animatePresentation: Bool
+    public let screen: NSScreen?
     /// Opacity of the black backdrop behind the blur, independent of blur radius
     /// (`ScreenBlurIntensity`). Clamped to `0.1...0.95`: the floor is the minimum
     /// background alpha the private CGS blur call needs to composite at all (see
     /// `createBlurWindow`), and the ceiling stops short of a fully opaque backdrop,
     /// which would no longer read as a blur.
-    let screenDim: Double
+    public let screenDim: Double
 
     public init(
       presentationMode: PresentationMode = .fullScreen,
