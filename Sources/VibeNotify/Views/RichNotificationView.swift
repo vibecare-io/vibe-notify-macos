@@ -46,6 +46,15 @@ public struct RichNotificationView: View {
   /// is where the press happens, carries it.
   @State private var completedEarly: Bool = false
 
+  /// Alpha-weighted mean luminance of the illustration's inked pixels, once
+  /// `ArtworkLuminance` has had a chance to rasterise it. `nil` means "not yet,
+  /// or nothing to measure", and resolves to the safe fallback treatment.
+  ///
+  /// Measured rather than declared, for the reason set out on
+  /// `ArtworkLuminance`: the caller handing this view an illustration is
+  /// routinely not the party that knows what is inside it.
+  @State private var artworkLuminance: Double?
+
   /// - Parameters:
   ///   - effectiveDim: the dim of whatever backdrop is already in place, which
   ///     is what selects between the scrim strategies. Not a `Bool` over
@@ -110,6 +119,30 @@ public struct RichNotificationView: View {
   /// Whether it draws anything *right now* is the pure function's call, not
   /// this one's.
   var drawsDismissIndicator: Bool { notification.autoDismiss != nil }
+
+  /// Which treatment the illustration gets, resolved the same way the scrim
+  /// strategy is: a pure function in `Legibility`, consumed here, never a
+  /// second opinion computed in a view body.
+  ///
+  /// Internal so a test can read the resolved value without a screen — the same
+  /// wiring assertion `scrimStrategy` exists for.
+  var illustrationTreatment: IllustrationTreatment {
+    switch notification.artworkTone {
+    case .dark: return .halo
+    case .light: return .shadow
+    case .automatic: return Legibility.illustrationTreatment(artworkLuminance: artworkLuminance)
+    }
+  }
+
+  /// The type and spacing scale for this alert.
+  ///
+  /// Mode-dependent, and that is not the `colorScheme` mistake wearing a new
+  /// hat: `mode` describes the *surface this library is drawing* — a full
+  /// screen it owns versus a 380-point toast in a corner — not the OS's opinion
+  /// about anything. A 26-point title and a 148-point ring are right on the
+  /// first and absurd on the second, and one scale for both is why the
+  /// interrupt read as under-set and the toast as shouted.
+  private var metrics: RichMetrics { RichMetrics.forMode(notification.mode) }
 
   // MARK: - Body
 
@@ -193,16 +226,36 @@ public struct RichNotificationView: View {
   /// nothing to gain.
   private var bleeds: Bool { notification.mode == .interrupt }
 
+  /// The stack, with **grouped** rather than uniform vertical rhythm.
+  ///
+  /// `VStack(spacing: 0)` plus an explicit gap *above* each element, rather
+  /// than one shared spacing, because the gaps are not all the same
+  /// relationship — see `RichMetrics`. Each gap is applied only when something
+  /// actually precedes the element, so an alert with no illustration does not
+  /// carry an illustration-sized hole where one would have been; that is what
+  /// keeps a 380×210 `.ambient` toast from spending a fifth of its height on
+  /// padding for content it does not have.
   private func content(in available: CGSize) -> some View {
-    VStack(spacing: 22) {
+    let hasIllustration = notification.illustration != nil
+    let hasText = notification.title != nil || notification.message != nil
+    // `clock == nil` means no countdown is drawn at all, so its gap must not be
+    // reserved either. A `.padding` on an absent child is still a real gap.
+    let hasCountdown = clock != nil
+    let aboveCountdown = hasIllustration || hasText
+    let aboveButtons = aboveCountdown || hasCountdown
+    let aboveFootnote = aboveButtons || !notification.buttons.isEmpty
+
+    return VStack(spacing: 0) {
       illustration(in: available)
 
       // Title and message share one scrim: they are one text block, and two
       // adjacent gradients would meet in a seam that reads as an edge.
-      if notification.title != nil || notification.message != nil {
-        VStack(spacing: 10) {
+      if hasText {
+        VStack(spacing: metrics.titleToMessage) {
           if let title = notification.title {
-            styled(Text(title).font(.system(size: 26, weight: .semibold)), as: styles.title)
+            styled(
+              Text(title).font(.system(size: metrics.titleSize, weight: .semibold)),
+              as: styles.title)
           }
           if let message = notification.message {
             // Refuses vertical truncation, so a long message wraps in full
@@ -211,18 +264,24 @@ public struct RichNotificationView: View {
             // Safe *because* of the `GeometryReader` in `body`, and not before
             // it: this modifier makes height a required function of width, and
             // that requirement used to propagate out and resize the window.
-            styled(Text(message).font(.system(size: 15)), as: styles.message)
+            styled(Text(message).font(.system(size: metrics.messageSize)), as: styles.message)
               .fixedSize(horizontal: false, vertical: true)
+              // Long-form text set solid reads as a wall. One extra half-line of
+              // leading is the cheapest thing that stops it, and it only touches
+              // the slot that ever wraps.
+              .lineSpacing(3)
           }
         }
-        .frame(maxWidth: 460)
+        .frame(maxWidth: metrics.textWidth)
         .scrimmed(scrimStrategy)
+        .padding(.top, hasIllustration ? metrics.illustrationToText : 0)
       }
 
       countdown
+        .padding(.top, (hasCountdown && aboveCountdown) ? metrics.textToCountdown : 0)
 
       if !notification.buttons.isEmpty {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
           ForEach(notification.buttons) { button in
             SwiftUI.Button(action: { press(button) }) {
               Text(button.title)
@@ -230,17 +289,24 @@ public struct RichNotificationView: View {
             .buttonStyle(RichButtonStyle(role: button.style))
           }
         }
+        .padding(.top, aboveButtons ? metrics.countdownToButtons : 0)
       }
 
       if let footnote = notification.footnote {
-        styled(Text(footnote).font(.system(size: 12)), as: styles.footnote)
+        styled(Text(footnote).font(.system(size: metrics.footnoteSize)), as: styles.footnote)
           // Its own scrim rather than a share of the block's: the footnote sits
           // below the buttons, and one rect spanning both would put a gradient
           // behind buttons that already carry their own contrast.
           .scrimmed(scrimStrategy, feather: 28)
+          .padding(.top, aboveFootnote ? metrics.buttonsToFootnote : 0)
       }
     }
-    .padding(28)
+    .padding(metrics.contentPadding)
+    // Optical centring — see `RichMetrics.opticalRise`. An `.offset` rather
+    // than asymmetric padding on purpose: it moves what is drawn without
+    // changing what is measured, so nothing here can propagate a new size
+    // requirement back out through the `GeometryReader`.
+    .offset(y: -available.height * metrics.opticalRise)
   }
 
   /// The **only** place this renderer sets a text colour or a text shadow.
@@ -267,12 +333,65 @@ public struct RichNotificationView: View {
       // Bounded against the space actually available. Unbounded, a large
       // caller-supplied image pushed every other element outside the clip and
       // the alert rendered completely blank.
-      illustrationBody(illustration.fitted(in: available))
-        // A dark drop shadow, never a glow. The existing SVG renderer applies a
-        // coloured glow in dark mode, which reinforces the illustration against
-        // dark backdrops and erases it against light ones — the same mistake as
-        // the white halo under white text.
+      let fitted = illustration.fitted(in: available)
+      treated(illustrationBody(fitted))
+        // Measured off the *unfitted* illustration: how light or dark the ink
+        // is does not change with the frame it is drawn into, and measuring the
+        // fitted one would re-measure on every window resize.
+        .onAppear { measureArtwork(illustration) }
+    }
+  }
+
+  /// Applies the treatment that **opposes the artwork**, which is the rule the
+  /// text styles have always followed and the illustration never did.
+  ///
+  /// The old code gave every illustration `black.opacity(0.5)` and justified it
+  /// in a comment as "a dark drop shadow, never a glow" — correct reasoning
+  /// about the *old* SVG renderer's bug (a coloured glow keyed off dark mode,
+  /// which erased light artwork against light backdrops) applied to the wrong
+  /// variable. The thing a glow must not be keyed off is the **colour scheme**.
+  /// Keying it off the artwork's own luminance is the opposite of that mistake:
+  /// it is the same rule as "light text takes a dark shadow", run in the
+  /// direction the input demands.
+  ///
+  /// Both halves of `.halo` are needed and they do different jobs. The bloom is
+  /// centred on the *frame*, so it puts light behind the mass of the artwork
+  /// but has already fallen away at the extremities of anything wide. The glow
+  /// follows the *drawn geometry*, so it puts light exactly along the ink. With
+  /// only the bloom the outer corners of the eye still merged into a black
+  /// desktop; with only the glow the illustration read as a sticker with a rim.
+  @ViewBuilder
+  private func treated(_ body: some View) -> some View {
+    switch illustrationTreatment {
+    case .halo:
+      body
+        .shadow(color: IllustrationHalo.glowColor, radius: IllustrationHalo.glowRadius)
+        .background {
+          IllustrationHalo().padding(-IllustrationHalo.feather)
+        }
+    case .shadow:
+      body
         .shadow(color: .black.opacity(0.5), radius: 15, y: 2)
+    }
+  }
+
+  /// Rasterises the illustration once and records its ink luminance.
+  ///
+  /// Deferred to the next run-loop turn rather than run inline in `onAppear`:
+  /// `ImageRenderer` starts a render pass of its own, and starting one from
+  /// inside the pass that is currently drawing this view is asking for trouble
+  /// in a way that is very hard to see when it goes wrong. One turn later the
+  /// entrance animation has not finished, so nothing is ever seen with the
+  /// fallback treatment.
+  ///
+  /// Skipped entirely when the caller declared the tone, which is the whole
+  /// point of letting them: an `.svg` measurement costs a second parse of the
+  /// file, and `eye.svg` is 98 KB.
+  private func measureArtwork(_ illustration: RichNotification.Illustration) {
+    guard notification.artworkTone == .automatic, artworkLuminance == nil else { return }
+    DispatchQueue.main.async {
+      artworkLuminance = ArtworkLuminance.measure(
+        illustrationBody(illustration), naturalSize: illustration.pixelSize)
     }
   }
 

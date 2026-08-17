@@ -40,10 +40,17 @@ final class RichDemoPresenter: ObservableObject {
   }()
 
   static let eyeSVGPath = repoRoot.appendingPathComponent("res/img/eye.svg").path
+  /// White line art, and the **other half** of the illustration-treatment
+  /// decision. `eye.svg` is a black silhouette, so with only that asset in the
+  /// picker the harness can only ever show the halo branch — and a light halo
+  /// behind light artwork is the halo-under-white-text mistake in a new place.
+  /// Both branches have to be lookable-at side by side or neither is checked.
+  static let outlineSVGPath = repoRoot.appendingPathComponent("res/img/eye-outline.svg").path
   static let momoPNGPath = repoRoot.appendingPathComponent("res/img/hungry_momo.png").path
 
   enum IllustrationChoice: String, CaseIterable, Identifiable {
-    case svg = "SVG (eye.svg)"
+    case svg = "SVG, dark ink (eye.svg)"
+    case outlineSVG = "SVG, light ink (eye-outline.svg)"
     case bitmap = "Bitmap (hungry_momo.png)"
     case symbol = "SF Symbol"
     case none = "None"
@@ -54,12 +61,15 @@ final class RichDemoPresenter: ObservableObject {
     func build() -> RichNotification.Illustration? {
       switch self {
       case .svg:
-        return .svg(.filePath(RichDemoPresenter.eyeSVGPath), size: CGSize(width: 220, height: 150))
+        return .svg(.filePath(RichDemoPresenter.eyeSVGPath), size: CGSize(width: 240, height: 164))
+      case .outlineSVG:
+        return .svg(
+          .filePath(RichDemoPresenter.outlineSVGPath), size: CGSize(width: 240, height: 164))
       case .bitmap:
         guard let image = NSImage(contentsOfFile: RichDemoPresenter.momoPNGPath) else { return nil }
-        return .image(image, size: CGSize(width: 180, height: 180))
+        return .image(image, size: CGSize(width: 190, height: 190))
       case .symbol:
-        return .symbol("eye.fill", pointSize: 56, color: nil)
+        return .symbol("eye.fill", pointSize: 86, color: nil)
       case .none:
         return nil
       }

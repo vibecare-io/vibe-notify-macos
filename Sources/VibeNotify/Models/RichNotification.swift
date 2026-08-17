@@ -86,9 +86,38 @@ public struct RichNotification {
     }
   }
 
+  /// How light or dark the illustration's ink is, which is what selects between
+  /// the two opposing treatments in `IllustrationTreatment`.
+  ///
+  /// `.automatic` — the default and the intended answer — means *measure it*:
+  /// the renderer rasterises the illustration once and takes the alpha-weighted
+  /// mean luminance of its inked pixels (`ArtworkLuminance`). The two explicit
+  /// cases exist for the caller who genuinely already knows, and they skip the
+  /// raster entirely.
+  ///
+  /// Deliberately named for the *artwork*, not for the treatment. A caller can
+  /// answer "my icon is white line art"; asking them to answer "my icon wants a
+  /// dark drop shadow rather than a light bloom" is asking them to make this
+  /// library's rendering decision on its behalf, and that is precisely how the
+  /// original bug — a rendering decision taken at four independent call sites —
+  /// got in.
+  public enum ArtworkTone: Sendable, Equatable {
+    /// Measure the artwork. Falls back to `.light`'s treatment if the
+    /// measurement finds no ink.
+    case automatic
+    /// Dark ink — a filled silhouette, a black-on-transparent logo. Takes the
+    /// light halo.
+    case dark
+    /// Light ink — white line art, a `.white`-tinted SF Symbol. Takes the dark
+    /// drop shadow, exactly as light text does.
+    case light
+  }
+
   // MARK: - Stored
 
   public let illustration: Illustration?
+  /// See `ArtworkTone`. Has no effect when `illustration` is `nil`.
+  public let artworkTone: ArtworkTone
   public let title: String?
   public let message: String?
   /// A fifth text slot, pinned below the ring — "Press ESC or click anywhere to
@@ -114,6 +143,7 @@ public struct RichNotification {
 
   public init(
     illustration: Illustration? = nil,
+    artworkTone: ArtworkTone = .automatic,
     title: String? = nil,
     message: String? = nil,
     footnote: String? = nil,
@@ -124,6 +154,7 @@ public struct RichNotification {
     acknowledgementLabel: String = "Got it"
   ) {
     self.illustration = illustration
+    self.artworkTone = artworkTone
     self.title = title
     self.message = message
     self.footnote = footnote

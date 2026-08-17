@@ -95,9 +95,12 @@ extension View {
   /// them — and a gradient that large stops reading as a scrim and starts
   /// reading as a panel.
   ///
-  /// Deliberately *not* applied to the illustration, which carries its own drop
-  /// shadow, nor to the buttons, which carry their own opaque fills. Scrimming
-  /// those would be drawing a backdrop for something that already has one.
+  /// Deliberately *not* applied to the illustration, which carries its own
+  /// treatment (`IllustrationHalo` for dark artwork, a drop shadow for light —
+  /// and neither is a scrim, because a scrim opposes the *backdrop* while those
+  /// oppose the artwork's own ink), nor to the buttons, which carry their own
+  /// opaque fills. Scrimming those would be drawing a backdrop for something
+  /// that already has one.
   @ViewBuilder
   func scrimmed(_ strategy: ScrimStrategy, feather: CGFloat = FeatheredScrim.feather) -> some View {
     switch strategy {
