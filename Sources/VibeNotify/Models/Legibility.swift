@@ -126,10 +126,14 @@ public enum Legibility {
   /// that used to consult it — and so a test can assert the two schemes
   /// produce identical output. Both scrims are dark, so both modes render
   /// light text in both system themes.
-  public static func textStyles(mode: AlertMode, colorScheme: ColorScheme) -> (
+  ///
+  /// There is deliberately no `mode` parameter. One was here and did nothing:
+  /// the two modes differ in *how* they guarantee a dark backdrop, never in
+  /// what colour sits on top of one, and a parameter that has never affected
+  /// the result is an invitation to make it affect the result.
+  public static func textStyles(colorScheme: ColorScheme) -> (
     title: TextStyle, message: TextStyle, footnote: TextStyle
   ) {
-    _ = mode
     _ = colorScheme
     return (title: .title, message: .message, footnote: .footnote)
   }

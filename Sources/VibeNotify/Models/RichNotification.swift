@@ -99,8 +99,28 @@ public struct RichNotification {
   /// `NotificationClock.init?` — both nil means no clock at all, not an inert
   /// object carried around.
   public var countdown: Countdown? {
-    guard taskTimer != nil || autoDismiss != nil else { return nil }
-    return Countdown(task: taskTimer, autoDismiss: autoDismiss)
+    guard effectiveTaskTimer != nil || autoDismiss != nil else { return nil }
+    return Countdown(task: effectiveTaskTimer, autoDismiss: autoDismiss)
+  }
+
+  /// The task timer that actually runs, which is not always the one the caller
+  /// stored.
+  ///
+  /// **`.ambient` gets the dismiss indicator only.** A large labelled ring reads
+  /// as a task, and in ambient mode there is no task — the number would answer a
+  /// question the user did not ask. That rule was prose in the spec and prose in
+  /// a doc comment, which is to say it was enforced nowhere: nothing stopped
+  /// `RichNotification(taskTimer:, mode: .ambient)` from putting a 148pt ring
+  /// with white numerals on a toast that has no scrim under it.
+  ///
+  /// Enforced here rather than in the renderer so that `countdown` agrees with
+  /// what is drawn. If the renderer alone ignored the timer, the clock would
+  /// still run a task phase and the toast would sit on screen for
+  /// `duration + delay` with nothing drawn to explain why. The caller's stored
+  /// `taskTimer` is left untouched — this reinterprets it, it does not rewrite
+  /// what they passed.
+  public var effectiveTaskTimer: TaskTimer? {
+    mode == .ambient ? nil : taskTimer
   }
 
   // MARK: - Dismiss indicator
