@@ -901,6 +901,36 @@ struct RichRendererPixelTests {
     }
   }
 
+  /// The framed wrapper must be a **third party** to whatever it embeds.
+  ///
+  /// This is the assertion for a bug that took two wrong diagnoses to find.
+  /// Giving the wrapper the target's own origin looks considerate and is what
+  /// YouTube's player specifically refuses: measured through its IFrame API,
+  /// a `youtube.com` base returns `ERROR:152` while a third-party base loads
+  /// the video. An embed is *meant* to be cross-origin — a document claiming
+  /// to be youtube.com while framing youtube.com is a shape the real web never
+  /// produces.
+  ///
+  /// Asserting the property rather than the literal, so the origin can be
+  /// renamed but not quietly pointed back at the target.
+  @Test func theFramedWrapperIsNeverSameOriginWithWhatItEmbeds() {
+    let origin = try! #require(WebPanelView.embedderOrigin)
+    let host = try! #require(origin.host())
+
+    #expect(origin.scheme == "https", "a non-https origin is not a usable embedder origin")
+    #expect(
+      host.hasSuffix(".invalid"),
+      """
+      the embedder origin must be unresolvable (RFC 2606) so it cannot collide with a real \
+      site's cookies in the shared data store — a host app's own localhost server included; \
+      got \(host)
+      """)
+
+    for embedded in ["www.youtube.com", "youtube.com", "www.youtube-nocookie.com", "youtu.be"] {
+      #expect(host != embedded, "the wrapper must not claim the origin it frames")
+    }
+  }
+
   /// A start offset survives the rewrite, in either spelling.
   ///
   /// It is part of what the author chose, not decoration: `youtu.be/ID?t=68`

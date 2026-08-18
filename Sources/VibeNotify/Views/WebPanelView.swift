@@ -48,7 +48,7 @@ struct WebPanelView: NSViewRepresentable {
     case .direct:
       view.load(URLRequest(url: panel.url))
     case .framed:
-      view.loadHTMLString(Self.frame(panel), baseURL: Self.origin(of: panel.url))
+      view.loadHTMLString(Self.frame(panel), baseURL: Self.embedderOrigin)
     }
   }
 
@@ -78,19 +78,32 @@ struct WebPanelView: NSViewRepresentable {
       """
   }
 
-  /// The wrapper document's origin — the target's own scheme and host.
+  /// The origin the wrapper document claims — a **third party** to whatever it
+  /// embeds, and deliberately one that can never resolve.
   ///
-  /// Not `about:blank` and not nil, which is the mistake that leaves the
-  /// original problem in place: a wrapper with no real origin sends no usable
-  /// referrer either, and the player rejects it for the same reason it
-  /// rejected the top-level navigation.
-  private static func origin(of url: URL) -> URL? {
-    guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-    comps.path = "/"
-    comps.query = nil
-    comps.fragment = nil
-    return comps.url
-  }
+  /// All three plausible choices were measured against YouTube's IFrame API,
+  /// which reports the player's own verdict rather than a guess at it:
+  ///
+  ///     baseURL                     result
+  ///     nil (about:blank)           ERROR:153 — no referrer at all
+  ///     https://www.youtube.com/    ERROR:152 — same-origin as the target
+  ///     https://…invalid/           onReady, duration loaded, no error
+  ///
+  /// The middle row is the trap, and it was this file's first answer: giving
+  /// the wrapper the *target's* origin looks like the considerate thing to do
+  /// and is precisely what the player refuses. An embed is meant to be
+  /// cross-origin — that is the whole arrangement it checks for — so a
+  /// document claiming to be youtube.com while framing youtube.com is a shape
+  /// the real web never produces.
+  ///
+  /// `.invalid` is reserved by RFC 2606 and guaranteed never to resolve, so
+  /// this cannot collide with a real site's cookies or storage in the shared
+  /// data store — including a `localhost` server belonging to the host app,
+  /// which is the near-miss that ruled out the obvious `https://localhost/`.
+  /// Nothing is ever fetched from it; it exists only to be an origin.
+  /// Internal rather than private so a test can assert the property that
+  /// matters — that this is never the host it embeds — without a network.
+  static let embedderOrigin = URL(string: "https://embed.vibenotify.invalid/")
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
