@@ -901,6 +901,52 @@ struct RichRendererPixelTests {
     }
   }
 
+  /// Autoplay and looping are player parameters on `loadURL`, and `url` stays
+  /// the plain identity of the video.
+  ///
+  /// The `autoplay=1` half is the fix for "Allow media autoplay does nothing":
+  /// relaxing the host's media policy is necessary but not sufficient, because
+  /// the player will not start on its own unless the URL says to.
+  ///
+  /// The `playlist=` half is the one that reads like a bug. On a single video
+  /// YouTube ignores `loop=1` unless `playlist` names that same video — the
+  /// parameter was designed for playlists, and the single-video spelling is a
+  /// documented workaround, not something to tidy away.
+  @Test func playbackOptionsRideOnLoadURLAndLoopingNamesItsOwnVideo() {
+    let link = URL(string: "https://youtu.be/-FlxM_0S2lA?t=2126")!
+
+    let plain = WebPanel(url: link)
+    #expect(plain.url.absoluteString == "https://www.youtube.com/embed/-FlxM_0S2lA?start=2126")
+    #expect(plain.loadURL == plain.url, "no options means nothing appended")
+
+    let playing = WebPanel(url: link, allowsAutoplay: true, loops: true)
+    let query = URLComponents(url: playing.loadURL, resolvingAgainstBaseURL: false)!.queryItems ?? []
+    let values = Dictionary(query.compactMap { item in item.value.map { (item.name, $0) } }) { a, _ in a }
+
+    #expect(values["start"] == "2126", "the offset must survive the options")
+    #expect(values["autoplay"] == "1")
+    #expect(values["loop"] == "1")
+    #expect(
+      values["playlist"] == "-FlxM_0S2lA",
+      "loop=1 on a single video does nothing unless playlist names it")
+
+    // Identity is unchanged by how it is played.
+    #expect(playing.url == plain.url)
+
+    // A leading-hyphen id is a real YouTube id and must not be eaten.
+    #expect(playing.loadURL.absoluteString.contains("/embed/-FlxM_0S2lA"))
+  }
+
+  /// A page that is not an embedded video has nothing to loop, and gains no
+  /// player parameters it would not understand.
+  @Test func aPlainPageGainsNoPlayerParameters() {
+    let panel = WebPanel(
+      url: URL(string: "http://127.0.0.1:8080/p/blink-jump/?vc=abc")!,
+      allowsAutoplay: true, loops: true)
+    #expect(panel.loadURL == panel.url)
+    #expect(!panel.loadURL.absoluteString.contains("autoplay"))
+  }
+
   /// The framed wrapper must be a **third party** to whatever it embeds.
   ///
   /// This is the assertion for a bug that took two wrong diagnoses to find.

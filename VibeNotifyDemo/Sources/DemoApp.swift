@@ -129,6 +129,7 @@ struct DemoContentView: View {
   @State private var webPlacement: WebPanel.Placement = .leading
   @State private var webWidthFraction: Double = 0.36
   @State private var webAutoplay = false
+  @State private var webLoops = false
   @State private var webDuration: Double = 20
 
   // Ambient controls
@@ -349,6 +350,7 @@ struct DemoContentView: View {
       }
 
       Toggle("Allow media autoplay", isOn: $webAutoplay)
+      Toggle("Loop the video", isOn: $webLoops)
 
       Button {
         guard let url = URL(string: webURL) else { return }
@@ -357,6 +359,7 @@ struct DemoContentView: View {
           placement: webPlacement,
           widthFraction: webWidthFraction,
           allowsAutoplay: webAutoplay,
+          loops: webLoops,
           duration: webDuration,
           backdropStyle: breakBackdrop,
           reduceMotion: reduceMotion.resolved,

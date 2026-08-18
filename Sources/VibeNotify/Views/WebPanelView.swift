@@ -41,12 +41,16 @@ struct WebPanelView: NSViewRepresentable {
     // SwiftUI calls this on every parent redraw, and this view's parent
     // redraws on the alert's entrance animation. Reloading each time would
     // restart the video, or the game, several times a second.
-    guard context.coordinator.loaded != panel.url else { return }
-    context.coordinator.loaded = panel.url
+    // `loadURL`, not `url`: the playback options live there, and keying the
+    // reload guard on the bare `url` would make a change of autoplay or loop
+    // silently fail to take effect.
+    let target = panel.loadURL
+    guard context.coordinator.loaded != target else { return }
+    context.coordinator.loaded = target
 
     switch panel.presentation {
     case .direct:
-      view.load(URLRequest(url: panel.url))
+      view.load(URLRequest(url: target))
     case .framed:
       view.loadHTMLString(Self.frame(panel), baseURL: Self.embedderOrigin)
     }
@@ -63,7 +67,7 @@ struct WebPanelView: NSViewRepresentable {
     // The URL is emitted into an HTML attribute, so its quotes and angle
     // brackets have to stop being syntax. `URL` cannot hold a newline, which
     // leaves these three.
-    let escaped = panel.url.absoluteString
+    let escaped = panel.loadURL.absoluteString
       .replacingOccurrences(of: "&", with: "&amp;")
       .replacingOccurrences(of: "\"", with: "&quot;")
       .replacingOccurrences(of: "<", with: "&lt;")
