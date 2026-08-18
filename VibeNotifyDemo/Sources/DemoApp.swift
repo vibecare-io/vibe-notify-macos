@@ -115,6 +115,7 @@ struct DemoContentView: View {
   @State private var appearance: AppearanceOverride = .system
 
   // Flagship interrupt controls
+  @State private var breakBackdrop: BackdropStyle = .blurredDesktop
   @State private var illustration: RichDemoPresenter.IllustrationChoice = .svg
   @State private var flagshipDuration: Double = 15
   @State private var dismissOnScreenTap = true
@@ -138,6 +139,9 @@ struct DemoContentView: View {
 
         Divider()
         appearanceSection
+
+        Divider()
+        breakBackdropSection
 
         Divider()
         flagshipSection
@@ -208,9 +212,62 @@ struct DemoContentView: View {
     }
   }
 
+  /// The user-facing backdrop choice, next to the *hostile* backdrop picker on
+  /// purpose: the two answer different questions ("what is behind the alert if
+  /// the user picked nothing" vs. "what is on the reviewer's desktop"), and the
+  /// only way to see that a painted backdrop hides the desktop outright is to
+  /// pick a violent pattern above and watch it vanish.
+  ///
+  /// The luminance readout is not decoration. It is the legibility rule, read
+  /// back out of the shipped value through the same `Legibility` functions that
+  /// enforce it, so a preset that drifted over the cap would say so here rather
+  /// than needing to be noticed as "hmm, that looks a bit bright".
+  private var breakBackdropSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("3. Break backdrop (the user's choice)").font(.headline)
+      Picker("Break backdrop", selection: $breakBackdrop) {
+        ForEach(BackdropStyle.allCases) { style in
+          Text(style.displayName).tag(style)
+        }
+      }
+      .labelsHidden()
+
+      if let fill = breakBackdrop.fill {
+        HStack(spacing: 10) {
+          RoundedRectangle(cornerRadius: 5)
+            .fill(
+              LinearGradient(
+                colors: fill.stops.map(\.color), startPoint: .topLeading,
+                endPoint: .bottomTrailing)
+            )
+            .frame(width: 64, height: 22)
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(.secondary.opacity(0.35)))
+          Text(
+            String(
+              format: "peak luminance %.4f / cap %.4f — %@", fill.peakLuminance,
+              Legibility.maxSafeLuminance,
+              fill.peakLuminance <= Legibility.maxSafeLuminance ? "safe" : "OVER CAP")
+          )
+          .font(.caption)
+          .monospacedDigit()
+          .foregroundColor(
+            fill.peakLuminance <= Legibility.maxSafeLuminance ? .secondary : .red)
+        }
+      } else {
+        Text(
+          String(
+            format: "Unknown surface — bounded by dim instead: %.2f (Legibility.safeDim).",
+            Legibility.safeDim)
+        )
+        .font(.caption)
+        .foregroundColor(.secondary)
+      }
+    }
+  }
+
   private var flagshipSection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("3. Flagship: .interrupt — the 20-20-20 eye break").font(.headline)
+      Text("4. Flagship: .interrupt — the 20-20-20 eye break").font(.headline)
       Text(
         "Illustration, title, message, a running task timer with its ring, Done / Snooze / Skip, and a footnote. Judge legibility where the title/message cross the backdrop's black/white seam."
       )
@@ -235,6 +292,7 @@ struct DemoContentView: View {
           duration: flagshipDuration,
           illustration: illustration,
           dismissOnScreenTap: dismissOnScreenTap,
+          backdropStyle: breakBackdrop,
           reduceMotion: reduceMotion.resolved,
           reduceTransparency: reduceTransparency.resolved,
           screen: .main)
@@ -249,7 +307,7 @@ struct DemoContentView: View {
 
   private var completionSection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("4. Completion states, on demand").font(.headline)
+      Text("5. Completion states, on demand").font(.headline)
       Text(
         "Both use a short 4s timer so you don't have to wait. Let it run to zero for \"Break complete\" with the check glyph and green stroke; press Done immediately for \"Got it\" — acknowledged, not claimed complete."
       )
@@ -262,6 +320,7 @@ struct DemoContentView: View {
             duration: 4,
             illustration: illustration,
             dismissOnScreenTap: false,
+            backdropStyle: breakBackdrop,
             reduceMotion: reduceMotion.resolved,
             reduceTransparency: reduceTransparency.resolved,
             screen: .main)
@@ -276,6 +335,7 @@ struct DemoContentView: View {
             duration: 4,
             illustration: illustration,
             dismissOnScreenTap: false,
+            backdropStyle: breakBackdrop,
             reduceMotion: reduceMotion.resolved,
             reduceTransparency: reduceTransparency.resolved,
             screen: .main)
@@ -290,7 +350,7 @@ struct DemoContentView: View {
 
   private var ambientSection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("5. .ambient — corner toast, feathered scrim").font(.headline)
+      Text("6. .ambient — corner toast, feathered scrim").font(.headline)
       Text(
         "Multi-line message of varying width, the hardest case for the scrim: its ellipse must reach zero alpha *inside* its own rect. Judge whether you can see a rectangular edge — you should not."
       )
@@ -336,7 +396,7 @@ struct DemoContentView: View {
 
   private var accessibilitySection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("6. Accessibility overrides").font(.headline)
+      Text("7. Accessibility overrides").font(.headline)
       Text(
         "Overrides passed straight into RichNotificationView's init — no need to touch System Settings. \"System\" reads the live NSWorkspace value instead."
       )
