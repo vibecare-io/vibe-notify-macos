@@ -88,6 +88,7 @@ final class RichDemoPresenter: ObservableObject {
     duration: TimeInterval,
     illustration: IllustrationChoice,
     dismissOnScreenTap: Bool,
+    backdropStyle: BackdropStyle = .blurredDesktop,
     reduceMotion: Bool?,
     reduceTransparency: Bool?,
     screen: NSScreen?
@@ -113,8 +114,14 @@ final class RichDemoPresenter: ObservableObject {
       mode: .interrupt,
       acknowledgementLabel: "Got it")
 
+    // The chosen break backdrop travels on the `Configuration`, which is also
+    // what `showRich` reads to tell the renderer what is behind it — one value,
+    // one owner. Judge this against a hostile pattern above: a painted backdrop
+    // is opaque, so the pattern should disappear entirely rather than show
+    // through, and that is what makes "the desktop is hidden" checkable rather
+    // than asserted.
     let configuration = OverlayWindowManager.Configuration.interrupt(
-      dismissOnScreenTap: dismissOnScreenTap, screen: screen)
+      dismissOnScreenTap: dismissOnScreenTap, screen: screen, backdropStyle: backdropStyle)
 
     return present(
       notification, configuration: configuration, reduceMotion: reduceMotion,

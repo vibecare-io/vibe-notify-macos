@@ -29,10 +29,17 @@ extension OverlayWindowManager.Configuration {
   /// returns `true` unconditionally — but `takesKeyFocus: true` is passed explicitly
   /// (it is also the default) so `OverlayWindowManager.show` seizes focus on presentation
   /// rather than merely ordering the window front.
+  ///
+  /// `backdropStyle` defaults to `.blurredDesktop`, so every call written
+  /// before it existed still produces exactly the blurred, 0.55-dimmed desktop
+  /// described above. A painted style replaces that surface entirely and makes
+  /// `screenDim` inert — the dim exists to bound an *unknown* desktop, and a
+  /// painted field is not unknown. See `BackdropStyle`.
   public static func interrupt(
     dismissOnScreenTap: Bool = false,
     animatePresentation: Bool = true,
-    screen: NSScreen? = nil
+    screen: NSScreen? = nil,
+    backdropStyle: BackdropStyle = .blurredDesktop
   ) -> OverlayWindowManager.Configuration {
     .init(
       presentationMode: .fullScreen,
@@ -52,7 +59,8 @@ extension OverlayWindowManager.Configuration {
       // scrim is redundant, and re-deriving it in three places is how two of
       // them end up stale.
       screenDim: Legibility.safeDim,
-      takesKeyFocus: true
+      takesKeyFocus: true,
+      backdropStyle: backdropStyle
     )
   }
 

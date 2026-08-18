@@ -276,7 +276,9 @@ public final class VibeNotify {
         let resolvedReduceTransparency =
             reduceTransparency ?? Legibility.Accessibility.reduceTransparency
         let backdrop = Legibility.backdrop(
-            for: notification.mode, reduceTransparency: resolvedReduceTransparency)
+            for: notification.mode,
+            reduceTransparency: resolvedReduceTransparency,
+            style: configuration.backdropStyle)
         let effectiveConfiguration =
             backdrop == .opaque ? Self.suppressingBlur(configuration) : configuration
 
@@ -292,7 +294,12 @@ public final class VibeNotify {
             RichNotificationView(
                 notification: notification,
                 reduceMotion: reduceMotion,
-                reduceTransparency: reduceTransparency
+                reduceTransparency: reduceTransparency,
+                // Read off the configuration the backdrop window is being built
+                // from, never taken as a second parameter: the window and the
+                // renderer have to agree about what is behind the text, and two
+                // arguments that must match are two arguments that can differ.
+                backdropStyle: configuration.backdropStyle
             ) {
                 self?.dismiss(id: id)
             }
@@ -336,7 +343,8 @@ public final class VibeNotify {
             animatePresentation: configuration.animatePresentation,
             screen: configuration.screen,
             screenDim: configuration.screenDim,
-            takesKeyFocus: configuration.takesKeyFocus
+            takesKeyFocus: configuration.takesKeyFocus,
+            backdropStyle: configuration.backdropStyle
         )
     }
 

@@ -25,6 +25,7 @@ public struct RichNotificationView: View {
   private let effectiveDimOverride: Double?
   private let reduceMotionOverride: Bool?
   private let reduceTransparencyOverride: Bool?
+  private let backdropStyle: BackdropStyle
 
   /// The reference only — **not** a subscription. `NotificationClock` is a
   /// Combine `ObservableObject`, so this hands back the same object for the
@@ -62,17 +63,23 @@ public struct RichNotificationView: View {
   ///     a safe backdrop. Defaults to what the mode implies.
   ///   - reduceMotion/reduceTransparency: overrides for the live system
   ///     settings, so the demo harness and tests can drive both branches.
+  ///   - backdropStyle: what the *backdrop window* is painting, so this view
+  ///     does not draw over it. Must match the `Configuration` the same alert
+  ///     was shown with; `VibeNotify.showRich` reads it off that configuration
+  ///     precisely so the two cannot disagree.
   public init(
     notification: RichNotification,
     effectiveDim: Double? = nil,
     reduceMotion: Bool? = nil,
     reduceTransparency: Bool? = nil,
+    backdropStyle: BackdropStyle = .blurredDesktop,
     onDismiss: @escaping () -> Void
   ) {
     self.notification = notification
     self.effectiveDimOverride = effectiveDim
     self.reduceMotionOverride = reduceMotion
     self.reduceTransparencyOverride = reduceTransparency
+    self.backdropStyle = backdropStyle
     self.onDismiss = onDismiss
   }
 
@@ -88,7 +95,8 @@ public struct RichNotificationView: View {
 
   private var effectiveDim: Double {
     if let effectiveDimOverride { return effectiveDimOverride }
-    return Legibility.backdrop(for: notification.mode, reduceTransparency: reducesTransparency)?
+    return Legibility.backdrop(
+      for: notification.mode, reduceTransparency: reducesTransparency, style: backdropStyle)?
       .effectiveDim ?? 0
   }
 
@@ -193,7 +201,7 @@ public struct RichNotificationView: View {
       // dropped, and this is the opaque black that replaces it. Drawn in the
       // content window because `Configuration.screenDim` clamps at 0.95 —
       // "solid" has to be genuinely solid, and here it is.
-      if notification.mode == .interrupt, reducesTransparency {
+      if drawsOpaqueFallback {
         Color.black.bleedingToScreenEdges(bleeds)
       }
 
@@ -215,6 +223,24 @@ public struct RichNotificationView: View {
         .opacity(entranceOpacity)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  /// Whether this view draws its own full-bleed opaque black.
+  ///
+  /// The third clause is the one that is easy to leave out and expensive to
+  /// leave out. Reduce Transparency's black exists because the *desktop*
+  /// backdrop reaches a safe luminance through a translucent dim and a blur,
+  /// neither of which that setting tolerates. A painted backdrop reaches it
+  /// through neither: the backdrop window is genuinely opaque and every colour
+  /// in it is capped at `Legibility.maxSafeLuminance`. Drawing black over that
+  /// would not make anything more legible — the surface was already compliant —
+  /// it would just silently discard the backdrop the user chose, on the one
+  /// configuration where nobody testing the default would ever see it happen.
+  ///
+  /// Internal rather than private so a test can read the decision without a
+  /// screen, the same wiring assertion `scrimStrategy` exists for.
+  var drawsOpaqueFallback: Bool {
+    notification.mode == .interrupt && reducesTransparency && backdropStyle.fill == nil
   }
 
   /// Whether this alert's window *is* the screen.

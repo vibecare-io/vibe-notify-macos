@@ -125,6 +125,14 @@ public class OverlayWindowManager {
     /// `createBlurWindow`), and the ceiling stops short of a fully opaque backdrop,
     /// which would no longer read as a blur.
     public let screenDim: Double
+    /// What the backdrop window paints. `.blurredDesktop` (the default) is the
+    /// blurred, `screenDim`-dimmed desktop every alert had before this existed;
+    /// anything else paints an opaque field instead and makes `screenDim` and
+    /// `screenBlurIntensity` inert, because there is no desktop left to dim or
+    /// to blur. Only consulted when `screenBlur` is true — the flag that decides
+    /// whether a backdrop window is built at all — so `.ambient`, which builds
+    /// none, is unaffected by this whatever it is set to.
+    public let backdropStyle: BackdropStyle
     /// Whether `show()` requests key status for the content window on presentation
     /// (`makeKeyAndOrderFront`) or only orders it front without seizing focus
     /// (`orderFront`). Defaults to `true`, matching every behavior before this
@@ -156,7 +164,8 @@ public class OverlayWindowManager {
       animatePresentation: Bool = true,
       screen: NSScreen? = nil,
       screenDim: Double = 0.1,
-      takesKeyFocus: Bool = true
+      takesKeyFocus: Bool = true,
+      backdropStyle: BackdropStyle = .blurredDesktop
     ) {
       self.presentationMode = presentationMode
       self.position = position
@@ -179,6 +188,7 @@ public class OverlayWindowManager {
       self.screen = screen
       self.screenDim = min(max(screenDim, 0.1), 0.95)
       self.takesKeyFocus = takesKeyFocus
+      self.backdropStyle = backdropStyle
     }
   }
 
@@ -274,6 +284,36 @@ public class OverlayWindowManager {
     clock?.start()
 
     return id
+  }
+
+  /// Registers an end handler on an overlay that is **already showing**.
+  ///
+  /// `show(id:configuration:countdown:onEnd:content:)` is the front door for
+  /// this and remains so. This exists for the caller who does not own the
+  /// `show` call — a preview button whose alert goes out through an app's own
+  /// notification funnel, which takes no `onEnd` and cannot grow one without
+  /// changing a signature other code depends on — but who has the returned id
+  /// and needs to know when that overlay closed, so it can take down scenery it
+  /// put up around it.
+  ///
+  /// Chains rather than replaces: a handler registered by `show` still runs,
+  /// and still runs first. Fires immediately with `nil` if `id` is not showing,
+  /// so a caller can never be left waiting on an overlay that has already gone
+  /// — the failure mode that would strand a full-screen scenery window on the
+  /// user's display with no route to close it.
+  public func addEndHandler(id: UUID, _ handler: @escaping (NotificationClock.Phase?) -> Void) {
+    guard activeWindows[id] != nil || clocks[id] != nil else {
+      handler(nil)
+      return
+    }
+    if let existing = endHandlers[id] {
+      endHandlers[id] = { phase in
+        existing(phase)
+        handler(phase)
+      }
+    } else {
+      endHandlers[id] = handler
+    }
   }
 
   /// Dismiss a specific overlay window
@@ -461,6 +501,26 @@ public class OverlayWindowManager {
     window.hasShadow = false
     window.isReleasedWhenClosed = false
     window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+    // A painted backdrop short-circuits both blur paths below. It is not "a
+    // blur with a different colour": there is nothing behind it to blur, the
+    // window is genuinely opaque rather than a dim over the desktop, and the
+    // private CGS blur call is left entirely off the legibility path. Its
+    // luminance ceiling comes from `BackdropFill.Stop`, which cannot hold a
+    // colour brighter than `Legibility.maxSafeLuminance`.
+    if let fill = configuration.backdropStyle.fill {
+      window.isOpaque = true
+      window.backgroundColor = .black
+      window.contentView = NSHostingView(
+        rootView: BackdropFillView(
+          fill: fill,
+          onTap: configuration.dismissOnScreenTap
+            ? { [weak self] in
+              self?.dismiss(id: notificationId)
+            } : nil
+        ))
+      return window
+    }
 
     // Use new intensity-based blur if specified, otherwise fall back to legacy material-based blur
     if let intensity = configuration.screenBlurIntensity {

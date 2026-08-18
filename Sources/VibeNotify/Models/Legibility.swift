@@ -39,6 +39,81 @@ public enum Legibility {
   /// Re-deriving it anywhere is how two of the three end up stale.
   public static let safeDim: Double = 0.55
 
+  // MARK: - The same rule, stated as a luminance
+
+  /// The greatest WCAG relative luminance a surface may have and still carry
+  /// white text at 4.5:1.
+  ///
+  /// This is not a second constant beside `safeDim`; it is the *middle step* of
+  /// `safeDim`'s own derivation, promoted to a name. Contrast is
+  /// `(L₁ + 0.05) / (L₂ + 0.05)`; with white on top (`L₁ = 1`) and 4.5:1
+  /// required, the backdrop's luminance must satisfy
+  /// `L₂ <= 1.05/4.5 − 0.05 = 0.1833…`. `safeDim` is what you get by asking how
+  /// much black you must composite over the worst *unknown* desktop (a white
+  /// one) to land there; this is what you get by asking the question directly of
+  /// a surface you painted yourself.
+  ///
+  /// **Which one applies is decided by whether the surface is known:**
+  ///
+  /// - Blurred desktop — unknown surface. Bounded by dim: `safeDim`.
+  /// - Painted backdrop (`BackdropStyle.fill`) — known surface, fully opaque.
+  ///   Bounded directly: every stop `<=` this.
+  ///
+  /// A blur is not a third answer. It preserves local mean luminance — blurring
+  /// a white browser half yields a white half — so it never moves a surface
+  /// under this cap.
+  public static let maxSafeLuminance: Double = 1.05 / 4.5 - 0.05
+
+  /// WCAG 2.x relative luminance of an sRGB colour.
+  public static func relativeLuminance(red: Double, green: Double, blue: Double) -> Double {
+    func linear(_ channel: Double) -> Double {
+      let c = min(max(channel, 0), 1)
+      return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+  }
+
+  /// `(red, green, blue)` darkened, if it has to be, until its relative
+  /// luminance is at most `maxSafeLuminance`. **The compensation a painted
+  /// backdrop carries with it**, and the reason `BackdropFill.Stop` cannot be
+  /// built too bright.
+  ///
+  /// The scaling happens in *linear* light, not on the sRGB values, for two
+  /// reasons. Relative luminance is a linear combination of the linearised
+  /// channels, so scaling all three by `k` scales luminance by exactly `k` —
+  /// one multiplication lands precisely on the cap rather than iterating toward
+  /// it. And scaling all three by the same factor leaves their ratios intact,
+  /// so an over-bright teal comes back a darker teal rather than a grey: the
+  /// preset's author still gets the colour they asked for, just at a luminance
+  /// white text survives.
+  ///
+  /// Returns the input untouched when it is already under the cap, which is the
+  /// case for every preset `BackdropStyle` currently ships — this is a guard
+  /// against the *next* preset, not a filter the current ones lean on.
+  public static func luminanceCapped(red: Double, green: Double, blue: Double) -> (
+    red: Double, green: Double, blue: Double
+  ) {
+    func linear(_ channel: Double) -> Double {
+      let c = min(max(channel, 0), 1)
+      return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+    func encode(_ linear: Double) -> Double {
+      let l = min(max(linear, 0), 1)
+      return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1 / 2.4) - 0.055
+    }
+
+    let luminance = relativeLuminance(red: red, green: green, blue: blue)
+    guard luminance > maxSafeLuminance, luminance > 0 else {
+      return (min(max(red, 0), 1), min(max(green, 0), 1), min(max(blue, 0), 1))
+    }
+    let scale = maxSafeLuminance / luminance
+    return (
+      red: encode(linear(red) * scale),
+      green: encode(linear(green) * scale),
+      blue: encode(linear(blue) * scale)
+    )
+  }
+
   // MARK: - The scrim selector
 
   /// Which backdrop, if any, the *renderer itself* must draw under its text
@@ -77,11 +152,35 @@ public enum Legibility {
   /// 50-point blur — and it has a second benefit worth keeping: the private CGS
   /// blur call (`WindowBlurHelper`) stops being on the legibility path at all,
   /// so if it ever degrades to nothing the alert is still legible, just flatter.
-  public static func backdrop(for mode: AlertMode, reduceTransparency: Bool) -> Backdrop? {
+  /// - Parameter style: which backdrop the user chose. `.blurredDesktop`, the
+  ///   default, reproduces this function's behaviour before the parameter
+  ///   existed exactly — including under Reduce Transparency.
+  ///
+  /// **How a chosen backdrop composes with Reduce Transparency.** It does not
+  /// fight it: it removes its cause. Reduce Transparency drops `.interrupt` to
+  /// opaque black because the two things it objects to — a translucent dim and a
+  /// private-API blur — are precisely how the *desktop* backdrop reaches a safe
+  /// luminance. A painted backdrop has neither: it is fully opaque already, no
+  /// blur is involved, and it is luminance-capped by construction. So there is
+  /// nothing for Reduce Transparency to correct, and the user's choice survives
+  /// it rather than being silently replaced with black. `RichNotificationView`
+  /// is the other half of that agreement — it suppresses its own opaque-black
+  /// layer when a painted backdrop is in force, which would otherwise cover the
+  /// chosen field with the very black this branch stopped returning.
+  public static func backdrop(
+    for mode: AlertMode,
+    reduceTransparency: Bool,
+    style: BackdropStyle = .blurredDesktop
+  ) -> Backdrop? {
     switch mode {
     case .ambient:
+      // Unchanged, and unchanged *by* `style`: a chosen backdrop is a
+      // full-screen field, and painting one behind a corner toast would be the
+      // "dim the desktop for a toast" category error this case exists to
+      // refuse. `.ambient` keeps its local feathered scrim.
       return nil
     case .interrupt:
+      if let fill = style.fill { return .painted(fill) }
       return reduceTransparency
         ? .opaque
         : .blurred(dim: safeDim, blurRadius: ScreenBlurIntensity.heavy.radius)
@@ -97,22 +196,44 @@ public enum Legibility {
     case blurred(dim: Double, blurRadius: Int)
     /// Solid black, no blur — Reduce Transparency.
     case opaque
+    /// A field this library paints, hiding the desktop outright. Every stop is
+    /// at or below `maxSafeLuminance`; see `BackdropFill`.
+    case painted(BackdropFill)
 
     public var blurRadius: Int {
       switch self {
       case .blurred(_, let radius): return radius
-      case .opaque: return 0
+      case .opaque, .painted: return 0
       }
     }
 
+    /// Whether the backdrop *window* must be suppressed in favour of the black
+    /// the renderer draws in its own content window.
+    ///
+    /// Not "is this backdrop opaque?", despite the name it has carried since
+    /// before `.painted` existed — a painted fill is opaque too. The question
+    /// every caller actually asks here is which of the two windows owns the
+    /// surface, and for `.painted` the answer is the backdrop window, which is
+    /// the one that can paint a gradient at all.
     public var isOpaque: Bool { self == .opaque }
 
+    /// The fill to paint, or `nil` for the backdrops that paint none.
+    public var fill: BackdropFill? {
+      switch self {
+      case .painted(let fill): return fill
+      case .blurred, .opaque: return nil
+      }
+    }
+
     /// What `scrimStrategy` should be handed as `effectiveDim`. An opaque
-    /// backdrop is total coverage, so it reads as 1.
+    /// backdrop is total coverage, so it reads as 1 — and so does a painted
+    /// one, for the same reason and with the same justification: the surface is
+    /// wholly ours and its luminance is capped, so a local scrim on top of it
+    /// would be a visible rectangle over a uniform field.
     public var effectiveDim: Double {
       switch self {
       case .blurred(let dim, _): return dim
-      case .opaque: return 1.0
+      case .opaque, .painted: return 1.0
       }
     }
   }
