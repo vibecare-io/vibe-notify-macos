@@ -120,12 +120,14 @@ struct DemoContentView: View {
   @State private var flagshipDuration: Double = 15
   @State private var dismissOnScreenTap = true
 
-  // Web panel. The default URL is a YouTube *embed* path rather than a
-  // `watch?v=` one: a watch URL loads the whole site chrome, which in a
-  // 60%-of-screen column is a page about a video instead of a video.
-  @State private var webURL = "https://www.youtube.com/embed/inpok4MKVLM"
+  // Web panel. Paste any YouTube shape — `watch?v=`, `youtu.be`, `/shorts/`,
+  // `/embed/`, with or without a `?t=` offset — and `WebPanel` rewrites it.
+  // An individual video can still refuse to be embedded ("Error 152"), which
+  // is the publisher's setting and not something this library can route round.
+  // The default is a Short, so the narrow starting width is the right one.
+  @State private var webURL = "https://www.youtube.com/shorts/eG51cFCbPZs"
   @State private var webPlacement: WebPanel.Placement = .leading
-  @State private var webWidthFraction: Double = 0.64
+  @State private var webWidthFraction: Double = 0.36
   @State private var webAutoplay = false
   @State private var webDuration: Double = 20
 
