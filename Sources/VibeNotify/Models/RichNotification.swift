@@ -118,6 +118,10 @@ public struct RichNotification {
   public let illustration: Illustration?
   /// See `ArtworkTone`. Has no effect when `illustration` is `nil`.
   public let artworkTone: ArtworkTone
+  /// A live web page as the surface's dominant element — see `WebPanel` for
+  /// why this is not a fourth `Illustration` case, and `effectiveWebPanel` for
+  /// when it is honoured.
+  public let webPanel: WebPanel?
   public let title: String?
   public let message: String?
   /// A fifth text slot, pinned below the ring — "Press ESC or click anywhere to
@@ -144,6 +148,7 @@ public struct RichNotification {
   public init(
     illustration: Illustration? = nil,
     artworkTone: ArtworkTone = .automatic,
+    webPanel: WebPanel? = nil,
     title: String? = nil,
     message: String? = nil,
     footnote: String? = nil,
@@ -155,6 +160,7 @@ public struct RichNotification {
   ) {
     self.illustration = illustration
     self.artworkTone = artworkTone
+    self.webPanel = webPanel
     self.title = title
     self.message = message
     self.footnote = footnote
@@ -195,6 +201,33 @@ public struct RichNotification {
   /// what they passed.
   public var effectiveTaskTimer: TaskTimer? {
     mode == .ambient ? nil : taskTimer
+  }
+
+  // MARK: - Web panel
+
+  /// The web panel that is actually drawn, which is not always the one the
+  /// caller stored — the same reinterpretation `effectiveTaskTimer` performs,
+  /// and for the same reason: the rule belongs on the model so the renderer
+  /// and anything else reading the model cannot disagree about it.
+  ///
+  /// **`.ambient` gets none.** The mode's own factory requires a width and a
+  /// height because it is a corner toast — the client ships it at 380×210.
+  /// Splitting that into a web column and a text rail leaves two columns too
+  /// narrow to be either, and a `WKWebView` is an expensive thing to
+  /// instantiate for something nobody can read. A caller who wants a page on
+  /// screen wants the screen.
+  public var effectiveWebPanel: WebPanel? {
+    mode == .ambient ? nil : webPanel
+  }
+
+  /// Whether the illustration is drawn. A web panel suppresses it.
+  ///
+  /// Not "the caller shouldn't set both" as a doc comment: `RichMetrics` has a
+  /// whole scale devoted to giving the surface one centre of gravity, and a
+  /// picture stacked above a text rail that already sits beside a video is
+  /// two. The panel is the picture.
+  public var effectiveIllustration: Illustration? {
+    effectiveWebPanel == nil ? illustration : nil
   }
 
   // MARK: - Dismiss indicator

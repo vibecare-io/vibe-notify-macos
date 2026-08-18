@@ -120,6 +120,15 @@ struct DemoContentView: View {
   @State private var flagshipDuration: Double = 15
   @State private var dismissOnScreenTap = true
 
+  // Web panel. The default URL is a YouTube *embed* path rather than a
+  // `watch?v=` one: a watch URL loads the whole site chrome, which in a
+  // 60%-of-screen column is a page about a video instead of a video.
+  @State private var webURL = "https://www.youtube.com/embed/inpok4MKVLM"
+  @State private var webPlacement: WebPanel.Placement = .leading
+  @State private var webWidthFraction: Double = 0.64
+  @State private var webAutoplay = false
+  @State private var webDuration: Double = 20
+
   // Ambient controls
   @State private var ambientPosition: OverlayWindowManager.WindowPosition = .bottomRight
   @State private var ambientIndicator: DismissIndicator = .bar
@@ -145,6 +154,9 @@ struct DemoContentView: View {
 
         Divider()
         flagshipSection
+
+        Divider()
+        webPanelSection
 
         Divider()
         completionSection
@@ -305,9 +317,62 @@ struct DemoContentView: View {
     }
   }
 
+  private var webPanelSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("5. Web panel — a break you can play, watch or read").font(.headline)
+      Text(
+        "A live page in one column, the usual rail in the other. Judge whether the ring and the buttons still read beside a bright, arbitrary rectangle — and note that clicking the panel does not dismiss the alert, which is deliberate."
+      )
+      .font(.caption)
+      .foregroundColor(.secondary)
+
+      TextField("URL", text: $webURL)
+        .textFieldStyle(.roundedBorder)
+        .font(.system(.body, design: .monospaced))
+
+      Picker("Web column", selection: $webPlacement) {
+        Text("Leading").tag(WebPanel.Placement.leading)
+        Text("Trailing").tag(WebPanel.Placement.trailing)
+      }
+      .pickerStyle(.segmented)
+
+      HStack {
+        Text("Width: \(Int(webWidthFraction * 100))%")
+        Slider(value: $webWidthFraction, in: 0.3...0.85, step: 0.01)
+      }
+
+      HStack {
+        Text("Duration: \(Int(webDuration))s")
+        Slider(value: $webDuration, in: 5...60, step: 1)
+      }
+
+      Toggle("Allow media autoplay", isOn: $webAutoplay)
+
+      Button {
+        guard let url = URL(string: webURL) else { return }
+        presenter.showWebPanel(
+          url: url,
+          placement: webPlacement,
+          widthFraction: webWidthFraction,
+          allowsAutoplay: webAutoplay,
+          duration: webDuration,
+          backdropStyle: breakBackdrop,
+          reduceMotion: reduceMotion.resolved,
+          reduceTransparency: reduceTransparency.resolved,
+          screen: .main)
+      } label: {
+        Label("Show Web Panel", systemImage: "play.rectangle.on.rectangle")
+          .frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.borderedProminent)
+      .controlSize(.large)
+      .disabled(URL(string: webURL) == nil)
+    }
+  }
+
   private var completionSection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("5. Completion states, on demand").font(.headline)
+      Text("6. Completion states, on demand").font(.headline)
       Text(
         "Both use a short 4s timer so you don't have to wait. Let it run to zero for \"Break complete\" with the check glyph and green stroke; press Done immediately for \"Got it\" — acknowledged, not claimed complete."
       )
@@ -350,7 +415,7 @@ struct DemoContentView: View {
 
   private var ambientSection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("6. .ambient — corner toast, feathered scrim").font(.headline)
+      Text("7. .ambient — corner toast, feathered scrim").font(.headline)
       Text(
         "Multi-line message of varying width, the hardest case for the scrim: its ellipse must reach zero alpha *inside* its own rect. Judge whether you can see a rectangular edge — you should not."
       )
@@ -396,7 +461,7 @@ struct DemoContentView: View {
 
   private var accessibilitySection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("7. Accessibility overrides").font(.headline)
+      Text("8. Accessibility overrides").font(.headline)
       Text(
         "Overrides passed straight into RichNotificationView's init — no need to touch System Settings. \"System\" reads the live NSWorkspace value instead."
       )

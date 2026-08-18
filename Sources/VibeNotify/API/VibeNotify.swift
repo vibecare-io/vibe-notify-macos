@@ -509,6 +509,7 @@ public class NotificationBuilder {
     // `illustration`/`svg`/`buttons` above, decide which renderer `show()`
     // hands off to.
     private var richIllustration: RichNotification.Illustration?
+    private var webPanel: WebPanel?
     private var footnote: String?
     private var taskTimer: TaskTimer?
     private var mode: AlertMode = .ambient
@@ -652,6 +653,16 @@ public class NotificationBuilder {
         return self
     }
 
+    /// A live web page beside the text and the countdown — a game, a video, an
+    /// inbox. Like `.taskTimer(...)`, setting this forces `.interrupt` unless
+    /// the caller explicitly chose a mode: `RichNotification.effectiveWebPanel`
+    /// returns `nil` in `.ambient`, so a builder left on its `.ambient` default
+    /// would otherwise instantiate nothing and explain nothing.
+    public func webPanel(_ panel: WebPanel) -> Self {
+        self.webPanel = panel
+        return self
+    }
+
     /// A fifth text slot the rich renderer draws below the buttons —
     /// `RichNotification`'s own doc comment covers why it is a separate
     /// property from `message`.
@@ -702,7 +713,7 @@ public class NotificationBuilder {
     /// window's hosted content view.
     var routesToRichRenderer: Bool {
         let hasRichOnlyField =
-            modeExplicitlySet || taskTimer != nil || footnote != nil
+            modeExplicitlySet || taskTimer != nil || footnote != nil || webPanel != nil
             || isImageOrSymbolIllustration
         if hasRichOnlyField { return true }
         return resolvedIllustration != nil && !buttons.isEmpty
@@ -752,7 +763,7 @@ public class NotificationBuilder {
     /// calling `.mode(.ambient)` explicitly sets `modeExplicitlySet`, which
     /// this reads and leaves alone.
     private var resolvedMode: AlertMode {
-        (taskTimer != nil && !modeExplicitlySet) ? .interrupt : mode
+        ((taskTimer != nil || webPanel != nil) && !modeExplicitlySet) ? .interrupt : mode
     }
 
     /// The `RichNotification` `show()` would present, built the same way
@@ -763,6 +774,7 @@ public class NotificationBuilder {
     func richNotification() -> RichNotification {
         RichNotification(
             illustration: resolvedIllustration,
+            webPanel: webPanel,
             title: title,
             message: message,
             footnote: footnote,

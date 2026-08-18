@@ -213,10 +213,19 @@ public struct RichNotificationView: View {
       // click-anywhere silently does not work. That is a defect to fix, not
       // inherit. In `.ambient` the window is sized to its content, so the same
       // target is simply "a click on the alert itself".
-      Color.clear
-        .contentShape(Rectangle())
-        .onTapGesture { dismissByCancelling() }
-        .bleedingToScreenEdges(bleeds)
+      // Suppressed outright when a web panel is on screen. Everywhere else
+      // "click anywhere to skip" is a courtesy, because everywhere else there
+      // is nothing on the surface to click *at*. With a game or a video in the
+      // panel the user is aiming at things for a living, and one shot landing
+      // in the margin would cancel the break mid-way — losing whatever they
+      // were doing and reporting nothing about why. The buttons and ESC remain,
+      // and both say what they do.
+      if notification.effectiveWebPanel == nil {
+        Color.clear
+          .contentShape(Rectangle())
+          .onTapGesture { dismissByCancelling() }
+          .bleedingToScreenEdges(bleeds)
+      }
 
       content(in: available)
         .scaleEffect(entranceScale)
@@ -261,8 +270,17 @@ public struct RichNotificationView: View {
   /// carry an illustration-sized hole where one would have been; that is what
   /// keeps a 380×210 `.ambient` toast from spending a fifth of its height on
   /// padding for content it does not have.
+  @ViewBuilder
   private func content(in available: CGSize) -> some View {
-    let hasIllustration = notification.illustration != nil
+    if let panel = notification.effectiveWebPanel {
+      webContent(panel, in: available)
+    } else {
+      stackContent(in: available)
+    }
+  }
+
+  private func stackContent(in available: CGSize) -> some View {
+    let hasIllustration = notification.effectiveIllustration != nil
     let hasText = notification.title != nil || notification.message != nil
     // `clock == nil` means no countdown is drawn at all, so its gap must not be
     // reserved either. A `.padding` on an absent child is still a real gap.
@@ -335,6 +353,120 @@ public struct RichNotificationView: View {
     .offset(y: -available.height * metrics.opticalRise)
   }
 
+  // MARK: - Web layout
+
+  /// The two-column surface: a live page in one column, this renderer's usual
+  /// chrome in the other.
+  ///
+  /// Sized off `available` and inset from it, rather than bleeding like the
+  /// stack layout does. The stack bleeds because it is text floating on a
+  /// scrim and the scrim must reach the notch; this has a hard-edged, opaque
+  /// panel in it, and a hard edge that meets the screen edge stops reading as
+  /// an overlay at all.
+  private func webContent(_ panel: WebPanel, in available: CGSize) -> some View {
+    let surface = CGSize(
+      width: available.width * RichMetrics.webSurfaceWidthFraction,
+      height: available.height * RichMetrics.webSurfaceHeightFraction)
+
+    // The rail's floor wins over the panel's requested fraction. `WebPanel`
+    // clamps `widthFraction` against constants, but the constants cannot know
+    // the screen: 0.85 of a 5K display leaves a generous rail, and 0.85 of a
+    // 1280-point laptop leaves 158 points — not enough for the ring and the
+    // button row the user needs in order to end the break.
+    let railWidth = max(
+      RichMetrics.webRailMinimumWidth,
+      surface.width * (1 - panel.widthFraction) - RichMetrics.webColumnGap)
+    let webWidth = max(0, surface.width - railWidth - RichMetrics.webColumnGap)
+
+    return HStack(spacing: RichMetrics.webColumnGap) {
+      if panel.placement == .trailing {
+        webRail(width: railWidth)
+      }
+      WebPanelView(panel: panel)
+        .frame(width: webWidth, height: surface.height)
+        // Behind the page, not over it: a page that has not painted yet would
+        // otherwise show system white through the rounded corners.
+        .background(Color.black.opacity(0.94))
+        .clipShape(
+          RoundedRectangle(cornerRadius: RichMetrics.webPanelCornerRadius, style: .continuous)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: RichMetrics.webPanelCornerRadius, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.45), radius: 30, y: 14)
+      if panel.placement == .leading {
+        webRail(width: railWidth)
+      }
+    }
+    .frame(width: surface.width, height: surface.height)
+  }
+
+  /// The text column beside the panel.
+  ///
+  /// **The countdown leads here**, where in the stack layout it follows the
+  /// text. The rail is read top-down against a panel that has already taken
+  /// the eye, so its order has to be *how long is left → what to do → how to
+  /// leave*; a ring discovered below the message is a ring discovered after
+  /// the user has decided whether to bother.
+  ///
+  /// Everything in it — `styled`, `scrimStrategy`, `press`, the button style —
+  /// is the same machinery the stack layout uses. That is the point of this
+  /// being a second layout rather than a second renderer.
+  private func webRail(width: CGFloat) -> some View {
+    let hasText = notification.title != nil || notification.message != nil
+
+    return VStack(alignment: .leading, spacing: 0) {
+      if clock != nil {
+        countdown
+          .frame(maxWidth: .infinity, alignment: .trailing)
+      }
+
+      if hasText {
+        VStack(alignment: .leading, spacing: metrics.titleToMessage) {
+          if let title = notification.title {
+            styled(
+              Text(title).font(.system(size: metrics.titleSize, weight: .semibold)),
+              as: styles.title)
+          }
+          if let message = notification.message {
+            styled(Text(message).font(.system(size: metrics.messageSize)), as: styles.message)
+              .fixedSize(horizontal: false, vertical: true)
+              .lineSpacing(3)
+          }
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .scrimmed(scrimStrategy)
+        .padding(.top, clock != nil ? metrics.textToCountdown : 0)
+      }
+
+      // Pushes the buttons to the foot of the rail. The way out of a break
+      // belongs in one predictable place, not floating at whatever height the
+      // message happened to end at.
+      Spacer(minLength: metrics.countdownToButtons)
+
+      if !notification.buttons.isEmpty {
+        HStack(spacing: 14) {
+          ForEach(notification.buttons) { button in
+            SwiftUI.Button(action: { press(button) }) {
+              Text(button.title)
+            }
+            .buttonStyle(RichButtonStyle(role: button.style))
+          }
+        }
+      }
+
+      if let footnote = notification.footnote {
+        styled(Text(footnote).font(.system(size: metrics.footnoteSize)), as: styles.footnote)
+          .multilineTextAlignment(.leading)
+          .scrimmed(scrimStrategy, feather: 28)
+          .padding(.top, notification.buttons.isEmpty ? 0 : metrics.buttonsToFootnote)
+      }
+    }
+    .frame(width: width, alignment: .leading)
+  }
+
   /// The **only** place this renderer sets a text colour or a text shadow.
   ///
   /// Funnelling all of it through one function is not tidiness. Colour and
@@ -355,7 +487,7 @@ public struct RichNotificationView: View {
 
   @ViewBuilder
   private func illustration(in available: CGSize) -> some View {
-    if let illustration = notification.illustration {
+    if let illustration = notification.effectiveIllustration {
       // Bounded against the space actually available. Unbounded, a large
       // caller-supplied image pushed every other element outside the clip and
       // the alert rendered completely blank.
