@@ -880,6 +880,51 @@ struct RichRendererPixelTests {
     #expect(withPanel.light > 0, "the web layout rendered no light content at all")
   }
 
+  /// Every YouTube shape an author might paste becomes a framed `/embed/`
+  /// URL. Handed over unaltered, all three fail differently: a watch URL loads
+  /// a page *about* a video, and an embed URL navigated to at top level
+  /// refuses to play at all ("Error 153"), because a top-level navigation
+  /// carries no referrer for the player to check.
+  @Test func youTubeLinksBecomeFramedEmbeds() {
+    for raw in [
+      "https://www.youtube.com/watch?v=inpok4MKVLM",
+      "https://youtu.be/inpok4MKVLM",
+      "https://www.youtube.com/embed/inpok4MKVLM",
+      "https://m.youtube.com/watch?v=inpok4MKVLM&t=30s",
+    ] {
+      let panel = WebPanel(url: URL(string: raw)!)
+      #expect(
+        panel.url.absoluteString == "https://www.youtube.com/embed/inpok4MKVLM",
+        "\(raw) resolved to \(panel.url.absoluteString)")
+      #expect(panel.presentation == .framed, "\(raw) must be framed or the player refuses")
+    }
+  }
+
+  /// Everything else is left exactly as typed and loaded directly. Framing a
+  /// page that sends `X-Frame-Options: DENY` — which is most things worth
+  /// logging into — produces a blank frame rather than a refusal you can read.
+  @Test func nonYouTubeURLsAreUntouchedAndDirect() {
+    for raw in [
+      "https://example.com/article",
+      "http://127.0.0.1:8080/p/blink-jump/?vc=abc",
+      "https://youtube.com.evil.test/watch?v=x",
+      "https://evilyoutube.com/watch?v=x",
+    ] {
+      let panel = WebPanel(url: URL(string: raw)!)
+      #expect(panel.url.absoluteString == raw)
+      #expect(panel.presentation == .direct)
+    }
+  }
+
+  /// An explicit presentation beats the URL sniffing, in both directions.
+  @Test func anExplicitPresentationWins() {
+    let youTube = URL(string: "https://youtu.be/inpok4MKVLM")!
+    #expect(WebPanel(url: youTube, presentation: .direct).presentation == .direct)
+    #expect(
+      WebPanel(url: URL(string: "https://example.com")!, presentation: .framed).presentation
+        == .framed)
+  }
+
   /// `.ambient` refuses the panel outright, so a caller who set one on a
   /// 380×210 toast gets the toast rather than two unusable columns.
   @Test func ambientRefusesAWebPanel() {

@@ -422,6 +422,11 @@ public struct RichNotificationView: View {
           .frame(maxWidth: .infinity, alignment: .trailing)
       }
 
+      // Paired with the `Spacer` at the foot: the ring stays pinned to the top
+      // corner, and everything below it centres in what is left rather than
+      // hanging from it.
+      Spacer(minLength: clock != nil ? metrics.textToCountdown : 0)
+
       if hasText {
         VStack(alignment: .leading, spacing: metrics.titleToMessage) {
           if let title = notification.title {
@@ -438,13 +443,7 @@ public struct RichNotificationView: View {
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .scrimmed(scrimStrategy)
-        .padding(.top, clock != nil ? metrics.textToCountdown : 0)
       }
-
-      // Pushes the buttons to the foot of the rail. The way out of a break
-      // belongs in one predictable place, not floating at whatever height the
-      // message happened to end at.
-      Spacer(minLength: metrics.countdownToButtons)
 
       if !notification.buttons.isEmpty {
         HStack(spacing: 14) {
@@ -455,6 +454,7 @@ public struct RichNotificationView: View {
             .buttonStyle(RichButtonStyle(role: button.style))
           }
         }
+        .padding(.top, hasText ? metrics.countdownToButtons : 0)
       }
 
       if let footnote = notification.footnote {
@@ -463,6 +463,18 @@ public struct RichNotificationView: View {
           .scrimmed(scrimStrategy, feather: 28)
           .padding(.top, notification.buttons.isEmpty ? 0 : metrics.buttonsToFootnote)
       }
+
+      // Balances the `Spacer` under the ring, centring text-through-footnote
+      // in whatever the ring left behind.
+      //
+      // The first version pinned the buttons to the *foot* of the rail
+      // instead, reasoning that the way out of a break belongs somewhere
+      // predictable. On screen that put a title and two lines of message up at
+      // the top, the buttons a full screen-height below them, and six hundred
+      // points of nothing in between — three fragments on a column rather than
+      // one thing to read. Proximity is what groups them, and there is no
+      // grouping left at that distance.
+      Spacer(minLength: 0)
     }
     .frame(width: width, alignment: .leading)
   }
