@@ -122,9 +122,11 @@ struct DemoContentView: View {
 
   // Web panel. Paste any YouTube shape — `watch?v=`, `youtu.be`, `/shorts/`,
   // `/embed/`, with or without a `?t=` offset — and `WebPanel` rewrites it.
-  // An individual video can still refuse to be embedded ("Error 152"), which
-  // is the publisher's setting and not something this library can route round.
   // The default is a Short, so the narrow starting width is the right one.
+  //
+  // If a video shows "Error 152" or "Error 153" here, suspect this library
+  // before the publisher: both codes were ours the last three times, and both
+  // came from how the embed was loaded rather than from the video.
   @State private var webURL = "https://www.youtube.com/shorts/eG51cFCbPZs"
   @State private var webPlacement: WebPanel.Placement = .leading
   @State private var webWidthFraction: Double = 0.36
@@ -349,7 +351,7 @@ struct DemoContentView: View {
         Slider(value: $webDuration, in: 5...60, step: 1)
       }
 
-      Toggle("Allow media autoplay", isOn: $webAutoplay)
+      Toggle("Start playing automatically (muted)", isOn: $webAutoplay)
       Toggle("Loop the video", isOn: $webLoops)
 
       Button {
