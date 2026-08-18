@@ -420,6 +420,7 @@ public struct RichNotificationView: View {
       if clock != nil {
         countdown
           .frame(maxWidth: .infinity, alignment: .trailing)
+          .padding(.top, RichMetrics.webRingTopInset)
       }
 
       // Paired with the `Spacer` at the foot: the ring stays pinned to the top

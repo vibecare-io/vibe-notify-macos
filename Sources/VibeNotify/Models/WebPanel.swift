@@ -98,16 +98,23 @@ public struct WebPanel: Sendable, Equatable {
   /// Three YouTube shapes reach this, and none of them works if handed
   /// unaltered to a top-level `load(_:)`:
   ///
+  /// Four YouTube shapes reach this, and none works if handed unaltered to a
+  /// top-level `load(_:)`:
+  ///
   /// - `youtube.com/watch?v=ID` loads the whole site — a page *about* a video,
   ///   with a sidebar, comments and a cookie wall, in a column meant to hold
   ///   the video.
   /// - `youtu.be/ID` is the same thing after a redirect.
+  /// - `youtube.com/shorts/ID` is a vertical feed: it plays the link *and*
+  ///   scrolls on to whatever is next, which for a break surface means the
+  ///   user is handed an infinite feed at the moment they are meant to stop
+  ///   looking at one.
   /// - `youtube.com/embed/ID` is the player alone, and refuses to start with
   ///   Error 153 because a top-level navigation carries no referrer.
   ///
-  /// All three become an `/embed/` URL presented `.framed`. Everything else is
-  /// returned untouched and `.direct` — this is a YouTube special case and is
-  /// not pretending to be a general oEmbed resolver.
+  /// All four become an `/embed/` URL presented `.framed`, carrying any start
+  /// offset the link had. Everything else is returned untouched and `.direct`
+  /// — this is a YouTube special case, not a general oEmbed resolver.
   static func embedded(_ url: URL) -> (url: URL, presentation: Presentation) {
     guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
       let host = comps.host?.lowercased()
@@ -117,9 +124,8 @@ public struct WebPanel: Sendable, Equatable {
     if host == "youtu.be" {
       identifier = comps.path.split(separator: "/").first.map(String.init)
     } else if Self.isYouTube(host) {
-      if comps.path.hasPrefix("/embed/") {
-        identifier = comps.path.dropFirst("/embed/".count).split(separator: "/").first.map(
-          String.init)
+      if let prefix = ["/embed/", "/shorts/", "/live/"].first(where: comps.path.hasPrefix) {
+        identifier = comps.path.dropFirst(prefix.count).split(separator: "/").first.map(String.init)
       } else if comps.path == "/watch" {
         identifier = comps.queryItems?.first { $0.name == "v" }?.value
       } else {
@@ -130,9 +136,57 @@ public struct WebPanel: Sendable, Equatable {
     }
 
     guard let identifier, !identifier.isEmpty,
-      let embed = URL(string: "https://www.youtube.com/embed/\(identifier)")
+      var embed = URLComponents(string: "https://www.youtube.com/embed/\(identifier)")
     else { return (url, .direct) }
-    return (embed, .framed)
+
+    // A start offset is part of what the author chose, not decoration: a link
+    // to a 12-minute routine at `?t=68` is a link to the exercise, and dropping
+    // it opens on a minute of introduction the break has no time for. The
+    // player spells the parameter `start`, always in whole seconds.
+    if let seconds = startSeconds(in: comps), seconds > 0 {
+      embed.queryItems = [URLQueryItem(name: "start", value: String(seconds))]
+    }
+
+    guard let resolved = embed.url else { return (url, .direct) }
+    return (resolved, .framed)
+  }
+
+  /// The start offset in whole seconds, from whichever spelling the link uses.
+  ///
+  /// YouTube emits `t` on share links and accepts `start` on embeds, and `t`
+  /// itself has two forms: bare seconds (`t=68`) and a duration (`t=1m30s`,
+  /// occasionally with hours). Both appear in ordinary copied links, so both
+  /// are read here.
+  private static func startSeconds(in comps: URLComponents) -> Int? {
+    guard
+      let raw = comps.queryItems?.first(where: { $0.name == "t" || $0.name == "start" })?.value,
+      !raw.isEmpty
+    else { return nil }
+
+    if let plain = Int(raw) { return plain }
+
+    var total = 0
+    var digits = 0
+    var sawUnit = false
+    for character in raw {
+      if let value = character.wholeNumberValue, character.isNumber {
+        digits = digits * 10 + value
+      } else {
+        switch character {
+        case "h": total += digits * 3600
+        case "m": total += digits * 60
+        case "s": total += digits
+        // An unrecognised character means this is not a duration at all, and
+        // guessing at a number from the fragments would be worse than opening
+        // at the start.
+        default: return nil
+        }
+        digits = 0
+        sawUnit = true
+      }
+    }
+    // Trailing bare digits after at least one unit ("1m30") are seconds.
+    return sawUnit ? total + digits : nil
   }
 
   /// Exact host or a true subdomain — never a suffix match.
