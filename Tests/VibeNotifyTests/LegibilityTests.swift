@@ -954,29 +954,33 @@ struct RichRendererPixelTests {
     #expect(!panel.loadURL.absoluteString.contains("autoplay"))
   }
 
-  /// The `Referer` a `.player` load claims must be an unresolvable https
-  /// origin — never a real domain, and never the host being loaded.
+  /// The player document's origin must be an unresolvable https origin —
+  /// never a real domain, and never the host it embeds.
   ///
-  /// A `Referer` is a claim about who is embedding. Naming a domain somebody
-  /// owns would assert their endorsement of whatever a caller chooses to put in
-  /// the panel, which is not ours to assert; `.invalid` (RFC 2606) can never
-  /// resolve, so it claims nothing about anyone and cannot be confused for a
-  /// site. Nothing is fetched from it and no document is served from it — it
-  /// exists only to be a header value.
+  /// The same-origin half is the assertion for a bug that took three wrong
+  /// diagnoses to find: giving the document YouTube's own origin looks
+  /// considerate and is precisely what the player refuses with Error 152,
+  /// because an embed is meant to be cross-origin.
   ///
-  /// Asserting the property rather than the literal, so the origin can be
-  /// renamed but not quietly turned into somebody's real domain.
-  @Test func theEmbedderRefererNamesNoRealDomain() {
-    let origin = try! #require(URL(string: WebPanelView.embedderOrigin))
+  /// The unresolvable half is a separate claim. An origin is a statement about
+  /// who is embedding, and naming a domain somebody owns would assert their
+  /// endorsement of whatever a caller puts in the panel. `.invalid` (RFC 2606)
+  /// can never resolve, so it claims nothing about anyone and cannot collide
+  /// with a real origin's cookies in the shared data store.
+  ///
+  /// Asserting the properties rather than the literal, so the origin can be
+  /// renamed but not quietly turned into a real domain or the target's own.
+  @Test func thePlayerDocumentOriginNamesNoRealDomain() {
+    let origin = try! #require(WebPanelView.embedderOrigin)
     let host = try! #require(origin.host())
 
     #expect(origin.scheme == "https", "the player rejects a non-https embedder")
     #expect(
       host.hasSuffix(".invalid"),
-      "the embedder Referer must be unresolvable so it claims nothing about a real site; got \(host)"
+      "the embedder origin must be unresolvable so it claims nothing about a real site; got \(host)"
     )
     for embedded in ["www.youtube.com", "youtube.com", "www.youtube-nocookie.com", "youtu.be"] {
-      #expect(host != embedded, "the Referer must not name the host it is loading")
+      #expect(host != embedded, "the document must not claim the origin it embeds")
     }
   }
 

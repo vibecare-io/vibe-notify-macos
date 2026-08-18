@@ -52,31 +52,70 @@ struct WebPanelView: NSViewRepresentable {
     case .direct:
       view.load(URLRequest(url: target))
     case .player:
-      var request = URLRequest(url: target)
-      // The one line that makes an embed URL work. Without it the player sees
-      // no embedder and answers with Error 153; with it, the same URL loads.
-      request.setValue(Self.embedderOrigin, forHTTPHeaderField: "Referer")
-      view.load(request)
+      view.loadHTMLString(Self.playerDocument(for: target), baseURL: Self.embedderOrigin)
     }
   }
 
-  /// The embedder this claims to be, in the `Referer` of a `.player` load.
+  /// A document holding nothing but the player, edge to edge.
   ///
-  /// Measured, everything else held equal:
+  /// **This is the arrangement, and it is an iframe on purpose.** A top-level
+  /// load with an explicit `Referer` header also gets past Error 153 — that
+  /// was measured — but it is not the shape a working embed has anywhere else
+  /// on the web, and in practice it does not autoplay. The reference that does
+  /// work is the ordinary one every page uses:
   ///
-  ///     Referer            result
-  ///     (none)             Error 153, readyState 0
-  ///     an https origin    loads fully, readyState 4
+  ///     <iframe src="https://www.youtube.com/embed/ID?autoplay=1&mute=1">
   ///
-  /// `.invalid` is reserved by RFC 2606 and can never resolve, so this claims
-  /// nothing about a real site and cannot be mistaken for one. It is a header
-  /// value only — nothing is ever fetched from it, and no document is served
-  /// from it. Naming a domain someone owns would be asserting their
-  /// endorsement of whatever a caller chooses to embed.
+  /// so this reproduces exactly that, and the only thing added to it is a
+  /// `baseURL` — see `embedderOrigin` for why the document needs an origin at
+  /// all, and why it must not be YouTube's own.
+  ///
+  /// `allow="autoplay"` is present only when the caller asked for it. The
+  /// attribute is what grants the frame permission, so including it always
+  /// would hand every embedded player the right to start regardless of
+  /// `allowsAutoplay`. Note it is necessary and not sufficient: the URL must
+  /// also carry `autoplay=1&mute=1`, which `WebPanel.loadURL` handles.
+  private static func playerDocument(for url: URL) -> String {
+    let allow = "autoplay; fullscreen; picture-in-picture"
+    // The URL is emitted into an HTML attribute, so its ampersands, quotes and
+    // angle brackets have to stop being syntax. A `URL` cannot hold a newline,
+    // which leaves these three.
+    let escaped = url.absoluteString
+      .replacingOccurrences(of: "&", with: "&amp;")
+      .replacingOccurrences(of: "\"", with: "&quot;")
+      .replacingOccurrences(of: "<", with: "&lt;")
+    return """
+      <!doctype html>
+      <html><head><meta charset="utf-8">
+      <style>
+        html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden}
+        iframe{border:0;display:block;width:100%;height:100%}
+      </style></head>
+      <body><iframe src="\(escaped)" allow="\(allow)" allowfullscreen></iframe></body></html>
+      """
+  }
+
+  /// The origin the player document claims, as a `baseURL`.
+  ///
+  /// It needs one. Measured against the player, everything else equal:
+  ///
+  ///     baseURL                     result
+  ///     nil (about:blank)           Error 153 — no origin, so no referrer
+  ///     https://www.youtube.com/    Error 152 — same-origin as the target
+  ///     https://…invalid/           loads, duration reported, no error
+  ///
+  /// The middle row is the trap and was this file's first answer: giving the
+  /// document the *target's* origin looks considerate and is exactly what the
+  /// player refuses, because an embed is meant to be cross-origin.
+  ///
+  /// `.invalid` is reserved by RFC 2606 and can never resolve, so it claims
+  /// nothing about a real site, cannot be confused for one, and cannot collide
+  /// with a real origin's cookies in the shared data store — a host app's own
+  /// `localhost` server included, which is what ruled out `https://localhost/`.
   ///
   /// Internal rather than private so a test can hold the property without a
   /// network.
-  static let embedderOrigin = "https://embed.vibenotify.invalid/"
+  static let embedderOrigin = URL(string: "https://embed.vibenotify.invalid/")
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
