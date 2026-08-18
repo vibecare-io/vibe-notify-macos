@@ -1,0 +1,45 @@
+name: CI
+
+# Validation only. Releases live in release.yml, so a test commit never
+# again shows up in the runs list as "Create Release #17".
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Deliberately NOT `push: '**'`. With both a branch trigger and a
+# pull_request trigger every push to a branch with an open PR ran the whole
+# suite twice, which is most of what made this workflow feel noisy.
+# `pull_request` covers branch work; `push: main` covers what lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  # Superseded PR runs are pure waste. Superseded main runs are not: main is
+  # what a tag gets cut from, so each commit there is worth a real result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          # Package.swift declares swift-tools-version 6.1, which needs Xcode
+          # 16.3 or newer. macos-14 runners top out at 16.2 (Swift 6.0.3) and
+          # fail to parse the manifest at all, so the runner image and this
+          # pin have to move together. `latest-stable` is not a pin.
+          xcode-version: '16.3'
+
+      - name: Report toolchain
+        run: swift --version
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Test
+        run: swift test
