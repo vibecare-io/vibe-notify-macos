@@ -835,6 +835,71 @@ struct RichRendererPixelTests {
     #expect(view.drawsDismissIndicator)
   }
 
+  // MARK: - The web layout still draws an alert
+
+  /// The rail survives having a web panel next to it.
+  ///
+  /// This exists because the exact failure it checks for has already shipped
+  /// once, in the other direction: an oversized illustration evicted every
+  /// other element past the clip and the surface rendered with *zero* inked
+  /// pixels — not a truncated alert, an empty one. The web layout takes a
+  /// column away from the same stack, so it can fail the same way, and a
+  /// `WKWebView` that draws nothing headless would hide it: the panel's own
+  /// backing is dark, so "something rendered" is not evidence the text did.
+  ///
+  /// Measured against the same content in the stack layout rather than a
+  /// pinned number, so a restyle that keeps the property does not break it.
+  @Test func theWebRailStillRendersItsTextAndItsButtons() {
+    let content = (title: "Rest your eyes", message: "Look twenty feet away.")
+    let size = CGSize(width: 1200, height: 760)
+
+    let stacked = render(
+      RichNotification(
+        title: content.title, message: content.message,
+        buttons: [.init(title: "Done", style: .primary, action: {})],
+        mode: .interrupt),
+      size: size)
+    let withPanel = render(
+      RichNotification(
+        webPanel: WebPanel(url: URL(string: "https://example.com")!),
+        title: content.title, message: content.message,
+        buttons: [.init(title: "Done", style: .primary, action: {})],
+        mode: .interrupt),
+      size: size)
+
+    // Light ink is text and button labels. The rail is narrower than the
+    // full-width stack, so its text wraps to more lines and lays down *more*
+    // of it, never less — but the floor being checked is that it is there at
+    // all.
+    #expect(
+      withPanel.light > stacked.light * 0.5,
+      """
+      the rail lost its text beside the panel; \
+      stacked=\(Int(stacked.light))pt² withPanel=\(Int(withPanel.light))pt²
+      """)
+    #expect(withPanel.light > 0, "the web layout rendered no light content at all")
+  }
+
+  /// `.ambient` refuses the panel outright, so a caller who set one on a
+  /// 380×210 toast gets the toast rather than two unusable columns.
+  @Test func ambientRefusesAWebPanel() {
+    let panel = WebPanel(url: URL(string: "https://example.com")!)
+    #expect(RichNotification(webPanel: panel, mode: .ambient).effectiveWebPanel == nil)
+    #expect(RichNotification(webPanel: panel, mode: .interrupt).effectiveWebPanel != nil)
+  }
+
+  /// The panel replaces the illustration rather than stacking above it — the
+  /// surface gets one centre of gravity, not two.
+  @Test func aWebPanelSuppressesTheIllustration() {
+    let notification = RichNotification(
+      illustration: .symbol("eye", pointSize: 56, color: nil),
+      webPanel: WebPanel(url: URL(string: "https://example.com")!),
+      mode: .interrupt)
+
+    #expect(notification.illustration != nil, "the caller's value is reinterpreted, not rewritten")
+    #expect(notification.effectiveIllustration == nil)
+  }
+
   /// The scrim strategy the renderer actually resolves, per mode × Reduce
   /// Transparency. `Legibility` being correct is worth nothing if the view
   /// computes its own answer.
