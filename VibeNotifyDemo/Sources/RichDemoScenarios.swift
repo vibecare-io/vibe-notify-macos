@@ -128,6 +128,59 @@ final class RichDemoPresenter: ObservableObject {
       reduceTransparency: reduceTransparency)
   }
 
+  // MARK: - Scenario: the web panel
+
+  /// `.interrupt` with a live page in one column and the usual chrome in the
+  /// other. The interesting thing to judge here is not the page — it is
+  /// whether the rail still works beside one: the ring, the buttons and the
+  /// text have to stay legible with a bright, arbitrary rectangle sitting next
+  /// to them.
+  ///
+  /// Note there is no "dismiss on screen tap" knob. `RichNotificationView`
+  /// suppresses the full-bleed tap target whenever a web panel is present —
+  /// clicking into a game must not cancel the break.
+  @discardableResult
+  func showWebPanel(
+    url: URL,
+    placement: WebPanel.Placement,
+    widthFraction: CGFloat,
+    allowsAutoplay: Bool,
+    duration: TimeInterval,
+    backdropStyle: BackdropStyle = .blurredDesktop,
+    reduceMotion: Bool?,
+    reduceTransparency: Bool?,
+    screen: NSScreen?
+  ) -> UUID {
+    let notification = RichNotification(
+      webPanel: WebPanel(
+        url: url,
+        placement: placement,
+        widthFraction: widthFraction,
+        allowsAutoplay: allowsAutoplay),
+      title: "Rest your eyes",
+      message: "Play until the ring finishes. Blink whenever you like — that is the point.",
+      footnote: "Press ESC to skip",
+      buttons: [
+        StandardNotification.Button(title: "Done", style: .primary) {
+          print("[demo] Done pressed — early acknowledgement expected")
+        },
+        StandardNotification.Button(title: "Skip", style: .destructive) {
+          print("[demo] Skip pressed — cancel, no completion state")
+        },
+      ],
+      taskTimer: TaskTimer(
+        duration: duration, unitLabel: "seconds", completionLabel: "Break complete"),
+      mode: .interrupt,
+      acknowledgementLabel: "Got it")
+
+    let configuration = OverlayWindowManager.Configuration.interrupt(
+      dismissOnScreenTap: false, screen: screen, backdropStyle: backdropStyle)
+
+    return present(
+      notification, configuration: configuration, reduceMotion: reduceMotion,
+      reduceTransparency: reduceTransparency)
+  }
+
   // MARK: - Scenario: ambient, corner-positioned, multi-line
 
   /// `.ambient` mode with a title, a message deliberately long enough to wrap

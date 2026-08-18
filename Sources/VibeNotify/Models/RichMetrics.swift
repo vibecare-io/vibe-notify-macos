@@ -82,4 +82,24 @@ struct RichMetrics: Equatable, Sendable {
     case .ambient: return .ambient
     }
   }
+
+  // MARK: - Web surface
+
+  /// The two-column surface's share of the screen. Deliberately short of the
+  /// edges: the dimmed, blurred desktop showing round all four sides is what
+  /// makes this read as *something placed over your work* rather than as an
+  /// application that just went full-screen — and the margin is the only thing
+  /// separating a black video panel from a black bezel.
+  static let webSurfaceWidthFraction: CGFloat = 0.88
+  static let webSurfaceHeightFraction: CGFloat = 0.84
+
+  /// The gutter between the web column and the text rail.
+  static let webColumnGap: CGFloat = 34
+
+  /// Wide enough for a countdown ring and a two-button row without wrapping.
+  /// A rail narrower than this is why `WebPanel.maximumWidthFraction` stops
+  /// where it does.
+  static let webRailMinimumWidth: CGFloat = 260
+
+  static let webPanelCornerRadius: CGFloat = 18
 }
