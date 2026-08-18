@@ -51,63 +51,32 @@ struct WebPanelView: NSViewRepresentable {
     switch panel.presentation {
     case .direct:
       view.load(URLRequest(url: target))
-    case .framed:
-      view.loadHTMLString(Self.frame(panel), baseURL: Self.embedderOrigin)
+    case .player:
+      var request = URLRequest(url: target)
+      // The one line that makes an embed URL work. Without it the player sees
+      // no embedder and answers with Error 153; with it, the same URL loads.
+      request.setValue(Self.embedderOrigin, forHTTPHeaderField: "Referer")
+      view.load(request)
     }
   }
 
-  /// A wrapper document holding nothing but the target, edge to edge.
+  /// The embedder this claims to be, in the `Referer` of a `.player` load.
   ///
-  /// `allow="autoplay"` is present only when the caller asked for it: the
-  /// attribute is what grants the iframe permission, so including it
-  /// unconditionally would hand every embedded player the right to start
-  /// talking regardless of `allowsAutoplay`.
-  private static func frame(_ panel: WebPanel) -> String {
-    let allow = panel.allowsAutoplay ? "autoplay; fullscreen; picture-in-picture" : "fullscreen"
-    // The URL is emitted into an HTML attribute, so its quotes and angle
-    // brackets have to stop being syntax. `URL` cannot hold a newline, which
-    // leaves these three.
-    let escaped = panel.loadURL.absoluteString
-      .replacingOccurrences(of: "&", with: "&amp;")
-      .replacingOccurrences(of: "\"", with: "&quot;")
-      .replacingOccurrences(of: "<", with: "&lt;")
-    return """
-      <!doctype html>
-      <html><head><meta charset="utf-8">
-      <style>
-        html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden}
-        iframe{border:0;display:block;width:100%;height:100%}
-      </style></head>
-      <body><iframe src="\(escaped)" allow="\(allow)" allowfullscreen></iframe></body></html>
-      """
-  }
-
-  /// The origin the wrapper document claims — a **third party** to whatever it
-  /// embeds, and deliberately one that can never resolve.
+  /// Measured, everything else held equal:
   ///
-  /// All three plausible choices were measured against YouTube's IFrame API,
-  /// which reports the player's own verdict rather than a guess at it:
+  ///     Referer            result
+  ///     (none)             Error 153, readyState 0
+  ///     an https origin    loads fully, readyState 4
   ///
-  ///     baseURL                     result
-  ///     nil (about:blank)           ERROR:153 — no referrer at all
-  ///     https://www.youtube.com/    ERROR:152 — same-origin as the target
-  ///     https://…invalid/           onReady, duration loaded, no error
+  /// `.invalid` is reserved by RFC 2606 and can never resolve, so this claims
+  /// nothing about a real site and cannot be mistaken for one. It is a header
+  /// value only — nothing is ever fetched from it, and no document is served
+  /// from it. Naming a domain someone owns would be asserting their
+  /// endorsement of whatever a caller chooses to embed.
   ///
-  /// The middle row is the trap, and it was this file's first answer: giving
-  /// the wrapper the *target's* origin looks like the considerate thing to do
-  /// and is precisely what the player refuses. An embed is meant to be
-  /// cross-origin — that is the whole arrangement it checks for — so a
-  /// document claiming to be youtube.com while framing youtube.com is a shape
-  /// the real web never produces.
-  ///
-  /// `.invalid` is reserved by RFC 2606 and guaranteed never to resolve, so
-  /// this cannot collide with a real site's cookies or storage in the shared
-  /// data store — including a `localhost` server belonging to the host app,
-  /// which is the near-miss that ruled out the obvious `https://localhost/`.
-  /// Nothing is ever fetched from it; it exists only to be an origin.
-  /// Internal rather than private so a test can assert the property that
-  /// matters — that this is never the host it embeds — without a network.
-  static let embedderOrigin = URL(string: "https://embed.vibenotify.invalid/")
+  /// Internal rather than private so a test can hold the property without a
+  /// network.
+  static let embedderOrigin = "https://embed.vibenotify.invalid/"
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 

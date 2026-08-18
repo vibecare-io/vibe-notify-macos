@@ -91,20 +91,27 @@ public struct WebPanel: Sendable, Equatable {
     /// Loaded as the web view's own top-level document. Right for anything
     /// that is a page in its own right — a plugin's UI, a webmail, an article.
     case direct
-    /// Loaded inside a full-bleed `<iframe>` in a wrapper document whose
-    /// origin is the target's own.
+    /// An embedded-player URL, loaded top-level with an explicit `Referer`.
     ///
-    /// **This exists because YouTube refuses to play otherwise.** Navigating
-    /// straight to a `/embed/` URL makes it the top-level document, which
-    /// sends no `Referer`; YouTube treats that as an unauthorised embedder and
-    /// renders "Error 153 — video player configuration error" instead of the
-    /// video. Putting it in an iframe below a real origin is the arrangement
-    /// its player expects, and is what every site embedding a video does.
+    /// **The header is the entire mechanism.** Navigating to a `/embed/` URL
+    /// sends no `Referer`, and YouTube reads that as an unauthorised embedder:
+    /// "Error 153 — video player configuration error", no video. Supplying one
+    /// satisfies it. Measured, holding everything else equal:
     ///
-    /// Not the default, because it is the *wrong* answer for most pages: a
-    /// site sending `X-Frame-Options: DENY` — which includes most things worth
-    /// logging into — renders a blank frame instead of a refusal you can read.
-    case framed
+    ///     top-level, no Referer      Error 153, readyState 0
+    ///     top-level, Referer set     loads fully, readyState 4
+    ///
+    /// This replaced an iframe in a wrapper document, which reached the same
+    /// place by a much longer road and broke autoplay getting there: media
+    /// policy — `WKWebViewConfiguration.mediaTypesRequiringUserActionForPlayback`
+    /// — governs the **main frame**, and a player sitting in a cross-origin
+    /// iframe never sees a host's decision to relax it. That is why "Allow
+    /// media autoplay" appeared to do nothing even once `autoplay=1` was being
+    /// sent. Top-level, the player is the main frame and the setting applies.
+    ///
+    /// Not the default, because a `Referer` is a claim about who is embedding
+    /// and most pages are not being embedded at all.
+    case player
   }
 
   public let presentation: Presentation
@@ -145,11 +152,8 @@ public struct WebPanel: Sendable, Equatable {
 
   /// A URL a panel can actually play, and how to present it.
   ///
-  /// Three YouTube shapes reach this, and none of them works if handed
-  /// unaltered to a top-level `load(_:)`:
-  ///
   /// Four YouTube shapes reach this, and none works if handed unaltered to a
-  /// top-level `load(_:)`:
+  /// plain top-level `load(_:)`:
   ///
   /// - `youtube.com/watch?v=ID` loads the whole site — a page *about* a video,
   ///   with a sidebar, comments and a cookie wall, in a column meant to hold
@@ -162,7 +166,7 @@ public struct WebPanel: Sendable, Equatable {
   /// - `youtube.com/embed/ID` is the player alone, and refuses to start with
   ///   Error 153 because a top-level navigation carries no referrer.
   ///
-  /// All four become an `/embed/` URL presented `.framed`, carrying any start
+  /// All four become an `/embed/` URL presented `.player`, carrying any start
   /// offset the link had. Everything else is returned untouched and `.direct`
   /// — this is a YouTube special case, not a general oEmbed resolver.
   static func embedded(_ url: URL) -> (url: URL, presentation: Presentation, videoID: String?) {
@@ -198,7 +202,7 @@ public struct WebPanel: Sendable, Equatable {
     }
 
     guard let resolved = embed.url else { return (url, .direct, nil) }
-    return (resolved, .framed, identifier)
+    return (resolved, .player, identifier)
   }
 
   /// The start offset in whole seconds, from whichever spelling the link uses.

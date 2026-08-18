@@ -897,7 +897,7 @@ struct RichRendererPixelTests {
       #expect(
         panel.url.absoluteString == "https://www.youtube.com/embed/inpok4MKVLM",
         "\(raw) resolved to \(panel.url.absoluteString)")
-      #expect(panel.presentation == .framed, "\(raw) must be framed or the player refuses")
+      #expect(panel.presentation == .player, "\(raw) must be framed or the player refuses")
     }
   }
 
@@ -947,33 +947,29 @@ struct RichRendererPixelTests {
     #expect(!panel.loadURL.absoluteString.contains("autoplay"))
   }
 
-  /// The framed wrapper must be a **third party** to whatever it embeds.
+  /// The `Referer` a `.player` load claims must be an unresolvable https
+  /// origin — never a real domain, and never the host being loaded.
   ///
-  /// This is the assertion for a bug that took two wrong diagnoses to find.
-  /// Giving the wrapper the target's own origin looks considerate and is what
-  /// YouTube's player specifically refuses: measured through its IFrame API,
-  /// a `youtube.com` base returns `ERROR:152` while a third-party base loads
-  /// the video. An embed is *meant* to be cross-origin — a document claiming
-  /// to be youtube.com while framing youtube.com is a shape the real web never
-  /// produces.
+  /// A `Referer` is a claim about who is embedding. Naming a domain somebody
+  /// owns would assert their endorsement of whatever a caller chooses to put in
+  /// the panel, which is not ours to assert; `.invalid` (RFC 2606) can never
+  /// resolve, so it claims nothing about anyone and cannot be confused for a
+  /// site. Nothing is fetched from it and no document is served from it — it
+  /// exists only to be a header value.
   ///
   /// Asserting the property rather than the literal, so the origin can be
-  /// renamed but not quietly pointed back at the target.
-  @Test func theFramedWrapperIsNeverSameOriginWithWhatItEmbeds() {
-    let origin = try! #require(WebPanelView.embedderOrigin)
+  /// renamed but not quietly turned into somebody's real domain.
+  @Test func theEmbedderRefererNamesNoRealDomain() {
+    let origin = try! #require(URL(string: WebPanelView.embedderOrigin))
     let host = try! #require(origin.host())
 
-    #expect(origin.scheme == "https", "a non-https origin is not a usable embedder origin")
+    #expect(origin.scheme == "https", "the player rejects a non-https embedder")
     #expect(
       host.hasSuffix(".invalid"),
-      """
-      the embedder origin must be unresolvable (RFC 2606) so it cannot collide with a real \
-      site's cookies in the shared data store — a host app's own localhost server included; \
-      got \(host)
-      """)
-
+      "the embedder Referer must be unresolvable so it claims nothing about a real site; got \(host)"
+    )
     for embedded in ["www.youtube.com", "youtube.com", "www.youtube-nocookie.com", "youtu.be"] {
-      #expect(host != embedded, "the wrapper must not claim the origin it frames")
+      #expect(host != embedded, "the Referer must not name the host it is loading")
     }
   }
 
@@ -1024,8 +1020,8 @@ struct RichRendererPixelTests {
     let youTube = URL(string: "https://youtu.be/inpok4MKVLM")!
     #expect(WebPanel(url: youTube, presentation: .direct).presentation == .direct)
     #expect(
-      WebPanel(url: URL(string: "https://example.com")!, presentation: .framed).presentation
-        == .framed)
+      WebPanel(url: URL(string: "https://example.com")!, presentation: .player).presentation
+        == .player)
   }
 
   /// `.ambient` refuses the panel outright, so a caller who set one on a
