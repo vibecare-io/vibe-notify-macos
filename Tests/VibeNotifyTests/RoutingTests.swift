@@ -310,10 +310,25 @@ struct RoutingTests {
       onEnd: { phase in reported = .some(phase) }
     )
 
-    // 0.1s deadline + up to 0.1s to the next tick + the manager's own 0.25s
-    // animated dismiss fade — 1.2s leaves comfortable margin over that ~0.45s
-    // worst case rather than cutting it close.
-    try await Task.sleep(for: .seconds(1.2))
+    // Poll for the outcome instead of sleeping a fixed span and hoping.
+    //
+    // The work is a 0.1s deadline, up to 0.1s to the next tick, and the
+    // manager's own 0.25s dismiss fade — roughly 0.45s. A fixed 1.2s sleep
+    // looks like comfortable margin over that and is not: swift-testing runs
+    // suites in parallel and every one of them shares the process-wide
+    // `OverlayWindowManager.shared`, so this test's main-actor continuations
+    // queue behind theirs. Under that contention no fixed margin is safe,
+    // which is why this flaked about three runs in six locally before blocking
+    // CI outright.
+    //
+    // Polling is not just a longer sleep: it returns the instant the teardown
+    // lands, so the common case is faster than the margin it replaces, and the
+    // full budget is only spent when something is genuinely wrong.
+    let budget = ContinuousClock.now.advanced(by: .seconds(10))
+    while ContinuousClock.now < budget {
+      if reported != nil, manager.activeWindows[id] == nil { break }
+      try await Task.sleep(for: .milliseconds(20))
+    }
 
     #expect(reported == .some(.finished))
     #expect(manager.activeWindows[id] == nil, "the window must actually have come down")
