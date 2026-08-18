@@ -38,6 +38,53 @@ public struct WebPanel: Sendable, Equatable {
   /// asking for a YouTube URL is not necessarily the party who decided the
   /// break should make noise.
   public let allowsAutoplay: Bool
+  /// Whether the video restarts when it reaches the end.
+  ///
+  /// Worth having because break lengths and video lengths have no reason to
+  /// agree: a 30-second Short under a 60-second countdown otherwise leaves the
+  /// user staring at an end card and a grid of thumbnails for the second half
+  /// of their break, which is the opposite of resting.
+  ///
+  /// Only meaningful for an embedded video (`embeddedVideoID != nil`); a plain
+  /// page has nothing to loop.
+  public let loops: Bool
+
+  /// The YouTube video this panel embeds, or `nil` when the panel is a page
+  /// rather than a video.
+  ///
+  /// Kept because looping needs it: see `loadURL`.
+  let embeddedVideoID: String?
+
+  /// The URL the web view is actually given — `url` plus the playback options.
+  ///
+  /// Separate from `url` because these are *player* parameters, not part of
+  /// identifying the video: two panels pointing at the same video with
+  /// different autoplay settings should still read as the same video, and
+  /// `url` is what a caller inspects to find out what a panel shows.
+  ///
+  /// **`loop=1` alone does nothing.** On a single video YouTube's player
+  /// ignores it unless `playlist` names that same video — the parameter was
+  /// designed for playlists and the single-video case is a documented
+  /// workaround, not an oversight to be tidied away.
+  public var loadURL: URL {
+    guard let embeddedVideoID,
+      var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return url }
+
+    var items = comps.queryItems ?? []
+    if allowsAutoplay {
+      // Necessary and not merely helpful: without it the player will not start
+      // on its own however permissive the host's media policy is, which is why
+      // "Allow media autoplay" appeared to do nothing at all.
+      items.append(URLQueryItem(name: "autoplay", value: "1"))
+    }
+    if loops {
+      items.append(URLQueryItem(name: "loop", value: "1"))
+      items.append(URLQueryItem(name: "playlist", value: embeddedVideoID))
+    }
+    comps.queryItems = items.isEmpty ? nil : items
+    return comps.url ?? url
+  }
 
   /// How the page is put on screen.
   public enum Presentation: Sendable, Equatable {
@@ -80,15 +127,18 @@ public struct WebPanel: Sendable, Equatable {
     placement: Placement = .leading,
     widthFraction: CGFloat = WebPanel.defaultWidthFraction,
     allowsAutoplay: Bool = false,
+    loops: Bool = false,
     presentation: Presentation? = nil
   ) {
     let resolved = Self.embedded(url)
     self.url = resolved.url
+    self.embeddedVideoID = resolved.videoID
     self.presentation = presentation ?? resolved.presentation
     self.placement = placement
     self.widthFraction = min(
       Self.maximumWidthFraction, max(Self.minimumWidthFraction, widthFraction))
     self.allowsAutoplay = allowsAutoplay
+    self.loops = loops
   }
 
   // MARK: - YouTube
@@ -115,10 +165,10 @@ public struct WebPanel: Sendable, Equatable {
   /// All four become an `/embed/` URL presented `.framed`, carrying any start
   /// offset the link had. Everything else is returned untouched and `.direct`
   /// — this is a YouTube special case, not a general oEmbed resolver.
-  static func embedded(_ url: URL) -> (url: URL, presentation: Presentation) {
+  static func embedded(_ url: URL) -> (url: URL, presentation: Presentation, videoID: String?) {
     guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
       let host = comps.host?.lowercased()
-    else { return (url, .direct) }
+    else { return (url, .direct, nil) }
 
     let identifier: String?
     if host == "youtu.be" {
@@ -132,12 +182,12 @@ public struct WebPanel: Sendable, Equatable {
         identifier = nil
       }
     } else {
-      return (url, .direct)
+      return (url, .direct, nil)
     }
 
     guard let identifier, !identifier.isEmpty,
       var embed = URLComponents(string: "https://www.youtube.com/embed/\(identifier)")
-    else { return (url, .direct) }
+    else { return (url, .direct, nil) }
 
     // A start offset is part of what the author chose, not decoration: a link
     // to a 12-minute routine at `?t=68` is a link to the exercise, and dropping
@@ -147,8 +197,8 @@ public struct WebPanel: Sendable, Equatable {
       embed.queryItems = [URLQueryItem(name: "start", value: String(seconds))]
     }
 
-    guard let resolved = embed.url else { return (url, .direct) }
-    return (resolved, .framed)
+    guard let resolved = embed.url else { return (url, .direct, nil) }
+    return (resolved, .framed, identifier)
   }
 
   /// The start offset in whole seconds, from whichever spelling the link uses.
