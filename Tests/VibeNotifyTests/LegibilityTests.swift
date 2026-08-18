@@ -890,13 +890,40 @@ struct RichRendererPixelTests {
       "https://www.youtube.com/watch?v=inpok4MKVLM",
       "https://youtu.be/inpok4MKVLM",
       "https://www.youtube.com/embed/inpok4MKVLM",
-      "https://m.youtube.com/watch?v=inpok4MKVLM&t=30s",
+      "https://www.youtube.com/shorts/inpok4MKVLM",
+      "https://www.youtube.com/live/inpok4MKVLM",
     ] {
       let panel = WebPanel(url: URL(string: raw)!)
       #expect(
         panel.url.absoluteString == "https://www.youtube.com/embed/inpok4MKVLM",
         "\(raw) resolved to \(panel.url.absoluteString)")
       #expect(panel.presentation == .framed, "\(raw) must be framed or the player refuses")
+    }
+  }
+
+  /// A start offset survives the rewrite, in either spelling.
+  ///
+  /// It is part of what the author chose, not decoration: `youtu.be/ID?t=68`
+  /// points at the exercise, and dropping the offset opens on a minute of
+  /// introduction a 20-second break has no room for.
+  @Test func aStartOffsetSurvivesTheRewrite() {
+    let cases: [(String, String?)] = [
+      ("https://youtu.be/IlCyVaoLR4Y?t=68", "start=68"),
+      ("https://www.youtube.com/watch?v=IlCyVaoLR4Y&t=90s", "start=90"),
+      ("https://www.youtube.com/watch?v=IlCyVaoLR4Y&t=1m30s", "start=90"),
+      ("https://www.youtube.com/watch?v=IlCyVaoLR4Y&t=1h2m3s", "start=3723"),
+      // No offset, and a tracking parameter that must not become one.
+      ("https://www.youtube.com/watch?v=IlCyVaoLR4Y&pp=ygUkYmVzdA", nil),
+      ("https://youtu.be/IlCyVaoLR4Y?t=0", nil),
+    ]
+    for (raw, expected) in cases {
+      let resolved = WebPanel(url: URL(string: raw)!).url.absoluteString
+      #expect(resolved.hasPrefix("https://www.youtube.com/embed/IlCyVaoLR4Y"), "\(raw) → \(resolved)")
+      if let expected {
+        #expect(resolved.hasSuffix("?" + expected), "\(raw) → \(resolved), wanted \(expected)")
+      } else {
+        #expect(!resolved.contains("start="), "\(raw) → \(resolved), wanted no start")
+      }
     }
   }
 

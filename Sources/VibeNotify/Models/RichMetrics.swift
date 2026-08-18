@@ -102,4 +102,13 @@ struct RichMetrics: Equatable, Sendable {
   static let webRailMinimumWidth: CGFloat = 260
 
   static let webPanelCornerRadius: CGFloat = 18
+
+  /// How far below the rail's top edge the countdown ring sits.
+  ///
+  /// Not zero, which is where it started. Flush with the top the ring reads as
+  /// something stuck to the corner of the screen rather than the head of the
+  /// column it belongs to, and its outer tick marks come within a few points
+  /// of the panel's top edge — close enough that the eye tries to align two
+  /// things that are not aligned.
+  static let webRingTopInset: CGFloat = 56
 }
