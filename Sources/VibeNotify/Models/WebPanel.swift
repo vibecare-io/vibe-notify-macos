@@ -33,10 +33,14 @@ public struct WebPanel: Sendable, Equatable {
   public let widthFraction: CGFloat
   /// Whether media may start without the user pressing anything.
   ///
-  /// Off by default. A video that starts talking on its own is a worse
-  /// interruption than the one the alert was meant to soften, and the caller
-  /// asking for a YouTube URL is not necessarily the party who decided the
-  /// break should make noise.
+  /// **It starts muted, and there is no other kind.** Browsers grant muted
+  /// autoplay and refuse unmuted autoplay without a user gesture; see
+  /// `loadURL`. A caller wanting sound from the first frame is asking for
+  /// something no policy allows, so this does not pretend to offer it.
+  ///
+  /// Off by default even so: a video that starts moving on its own is still a
+  /// second interruption on top of the alert, and the caller supplying a URL
+  /// is not necessarily the party who decided the break should move.
   public let allowsAutoplay: Bool
   /// Whether the video restarts when it reaches the end.
   ///
@@ -73,10 +77,19 @@ public struct WebPanel: Sendable, Equatable {
 
     var items = comps.queryItems ?? []
     if allowsAutoplay {
-      // Necessary and not merely helpful: without it the player will not start
-      // on its own however permissive the host's media policy is, which is why
-      // "Allow media autoplay" appeared to do nothing at all.
       items.append(URLQueryItem(name: "autoplay", value: "1"))
+      // **`mute=1` is not optional, and it is why this feature looked broken.**
+      // Muted autoplay is the only kind any browser grants without a user
+      // gesture; an unmuted one is refused however permissive the host's media
+      // policy is. `autoplay=1` alone therefore does nothing at all, which is
+      // exactly what the toggle appeared to do.
+      //
+      // The cost is real and is the right trade anyway: a break video that
+      // begins talking at you unprompted is the interruption the alert was
+      // meant to soften. The player keeps its own unmute control for a user
+      // who wants the audio, and that click is the gesture the policy was
+      // asking for.
+      items.append(URLQueryItem(name: "mute", value: "1"))
     }
     if loops {
       items.append(URLQueryItem(name: "loop", value: "1"))

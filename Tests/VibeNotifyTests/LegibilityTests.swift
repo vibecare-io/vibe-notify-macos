@@ -925,6 +925,13 @@ struct RichRendererPixelTests {
 
     #expect(values["start"] == "2126", "the offset must survive the options")
     #expect(values["autoplay"] == "1")
+    #expect(
+      values["mute"] == "1",
+      """
+      autoplay must ask for MUTED playback. Browsers grant muted autoplay and refuse unmuted \
+      autoplay without a user gesture, so `autoplay=1` on its own does nothing whatsoever — \
+      which is exactly how this shipped, looking like a toggle that did not work
+      """)
     #expect(values["loop"] == "1")
     #expect(
       values["playlist"] == "-FlxM_0S2lA",
