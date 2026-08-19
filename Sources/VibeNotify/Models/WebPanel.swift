@@ -33,15 +33,27 @@ public struct WebPanel: Sendable, Equatable {
   public let widthFraction: CGFloat
   /// Whether media may start without the user pressing anything.
   ///
-  /// **It starts muted, and there is no other kind.** Browsers grant muted
-  /// autoplay and refuse unmuted autoplay without a user gesture; see
-  /// `loadURL`. A caller wanting sound from the first frame is asking for
-  /// something no policy allows, so this does not pretend to offer it.
+  /// Off by default: a video that starts moving on its own is a second
+  /// interruption on top of the alert, and the caller supplying a URL is not
+  /// necessarily the party who decided the break should move.
   ///
-  /// Off by default even so: a video that starts moving on its own is still a
-  /// second interruption on top of the alert, and the caller supplying a URL
-  /// is not necessarily the party who decided the break should move.
+  /// **Read `startsMuted` before turning this on alone.** Browsers grant muted
+  /// autoplay and refuse unmuted autoplay without a user gesture, so
+  /// `allowsAutoplay` with `startsMuted == false` is a request most policies
+  /// decline — and the failure is silent, because a refused autoplay looks
+  /// exactly like a video waiting to be clicked.
   public let allowsAutoplay: Bool
+  /// Whether the player starts with its sound off.
+  ///
+  /// **On by default, and separate from `allowsAutoplay` on purpose.** The two
+  /// were one flag, which conflated a question about *starting* with a
+  /// question about *sound* and left no way to open a break video muted for a
+  /// user who will press play themselves.
+  ///
+  /// They remain related in one direction only: muting is what makes autoplay
+  /// permissible. Turning this off does not break a break that is clicked into
+  /// life; it only makes an autoplaying one likely to be refused.
+  public let startsMuted: Bool
   /// Whether the video restarts when it reaches the end.
   ///
   /// Worth having because break lengths and video lengths have no reason to
@@ -78,17 +90,18 @@ public struct WebPanel: Sendable, Equatable {
     var items = comps.queryItems ?? []
     if allowsAutoplay {
       items.append(URLQueryItem(name: "autoplay", value: "1"))
-      // **`mute=1` is not optional, and it is why this feature looked broken.**
-      // Muted autoplay is the only kind any browser grants without a user
-      // gesture; an unmuted one is refused however permissive the host's media
-      // policy is. `autoplay=1` alone therefore does nothing at all, which is
-      // exactly what the toggle appeared to do.
+    }
+    if startsMuted {
+      // Emitted independently of `autoplay`, because a muted start is a
+      // reasonable thing to want for a video the user will press play on
+      // themselves.
       //
-      // The cost is real and is the right trade anyway: a break video that
-      // begins talking at you unprompted is the interruption the alert was
-      // meant to soften. The player keeps its own unmute control for a user
-      // who wants the audio, and that click is the gesture the policy was
-      // asking for.
+      // It is also what makes autoplay work at all: muted autoplay is the only
+      // kind a browser grants without a user gesture, and `autoplay=1` on its
+      // own is refused however permissive the host's media policy is. That
+      // combination fails *silently* — a refused autoplay is indistinguishable
+      // from a video waiting to be clicked — which is exactly how this shipped
+      // once already, looking like a toggle that did nothing.
       items.append(URLQueryItem(name: "mute", value: "1"))
     }
     if loops {
@@ -147,6 +160,7 @@ public struct WebPanel: Sendable, Equatable {
     placement: Placement = .leading,
     widthFraction: CGFloat = WebPanel.defaultWidthFraction,
     allowsAutoplay: Bool = false,
+    startsMuted: Bool = true,
     loops: Bool = false,
     presentation: Presentation? = nil
   ) {
@@ -158,6 +172,7 @@ public struct WebPanel: Sendable, Equatable {
     self.widthFraction = min(
       Self.maximumWidthFraction, max(Self.minimumWidthFraction, widthFraction))
     self.allowsAutoplay = allowsAutoplay
+    self.startsMuted = startsMuted
     self.loops = loops
   }
 

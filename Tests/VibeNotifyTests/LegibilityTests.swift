@@ -917,20 +917,31 @@ struct RichRendererPixelTests {
 
     let plain = WebPanel(url: link)
     #expect(plain.url.absoluteString == "https://www.youtube.com/embed/-FlxM_0S2lA?start=2126")
-    #expect(plain.loadURL == plain.url, "no options means nothing appended")
+    func options(_ panel: WebPanel) -> [String: String] {
+      let query = URLComponents(url: panel.loadURL, resolvingAgainstBaseURL: false)!.queryItems ?? []
+      return Dictionary(query.compactMap { item in item.value.map { (item.name, $0) } }) { a, _ in a }
+    }
+
+    // Muted is the default, so even an untouched panel carries it.
+    #expect(options(plain)["mute"] == "1")
+    #expect(options(plain)["autoplay"] == nil, "muted is not a request to start playing")
+
+    // The two are independent: muting can be lifted without touching autoplay.
+    let loud = WebPanel(url: link, startsMuted: false)
+    #expect(options(loud)["mute"] == nil)
+    #expect(options(loud)["autoplay"] == nil)
 
     let playing = WebPanel(url: link, allowsAutoplay: true, loops: true)
-    let query = URLComponents(url: playing.loadURL, resolvingAgainstBaseURL: false)!.queryItems ?? []
-    let values = Dictionary(query.compactMap { item in item.value.map { (item.name, $0) } }) { a, _ in a }
+    let values = options(playing)
 
     #expect(values["start"] == "2126", "the offset must survive the options")
     #expect(values["autoplay"] == "1")
     #expect(
       values["mute"] == "1",
       """
-      autoplay must ask for MUTED playback. Browsers grant muted autoplay and refuse unmuted \
-      autoplay without a user gesture, so `autoplay=1` on its own does nothing whatsoever — \
-      which is exactly how this shipped, looking like a toggle that did not work
+      the default must keep autoplay muted. Browsers grant muted autoplay and refuse unmuted \
+      autoplay without a user gesture, and the refusal is silent — a blocked autoplay looks \
+      exactly like a video waiting to be clicked, which is how this shipped once already
       """)
     #expect(values["loop"] == "1")
     #expect(

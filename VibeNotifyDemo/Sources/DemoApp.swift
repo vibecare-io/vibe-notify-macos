@@ -131,6 +131,7 @@ struct DemoContentView: View {
   @State private var webPlacement: WebPanel.Placement = .leading
   @State private var webWidthFraction: Double = 0.36
   @State private var webAutoplay = false
+  @State private var webMuted = true
   @State private var webLoops = false
   @State private var webDuration: Double = 20
 
@@ -351,7 +352,8 @@ struct DemoContentView: View {
         Slider(value: $webDuration, in: 5...60, step: 1)
       }
 
-      Toggle("Start playing automatically (muted)", isOn: $webAutoplay)
+      Toggle("Start playing automatically", isOn: $webAutoplay)
+      Toggle("Start muted", isOn: $webMuted)
       Toggle("Loop the video", isOn: $webLoops)
 
       Button {
@@ -361,6 +363,7 @@ struct DemoContentView: View {
           placement: webPlacement,
           widthFraction: webWidthFraction,
           allowsAutoplay: webAutoplay,
+          startsMuted: webMuted,
           loops: webLoops,
           duration: webDuration,
           backdropStyle: breakBackdrop,
