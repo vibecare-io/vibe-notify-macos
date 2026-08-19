@@ -42,6 +42,28 @@ public struct WebPanel: Sendable, Equatable {
   /// `allowsAutoplay` with `startsMuted == false` is a request most policies
   /// decline — and the failure is silent, because a refused autoplay looks
   /// exactly like a video waiting to be clicked.
+  ///
+  /// ## Low Power Mode defeats this entirely
+  ///
+  /// **Measured, and the explanation for a long hunt that blamed everything
+  /// else first.** With macOS Low Power Mode on, WebKit refuses to start any
+  /// video without a real user gesture — muted or not, `autoplay=1` or not,
+  /// and whatever the host sets
+  /// `WKWebViewConfiguration.mediaTypesRequiringUserActionForPlayback` to. The
+  /// restriction is `RequireUserGestureForVideoDueToLowPowerMode`
+  /// (`MediaElementSession.cpp`): it has no muted exemption, no platform
+  /// guard, and no API or SPI that lifts it.
+  ///
+  /// It is not detected or worked around here. There is nothing to work
+  /// around *with* — the only thing that satisfies the gate is the user
+  /// pressing play, which is what happens anyway. Hosts that want to explain
+  /// the silence to a user can read `ProcessInfo.processInfo.isLowPowerModeEnabled`
+  /// and say so; this library does not read it, because a false claim of
+  /// "autoplay unavailable" on a machine where it works would be worse than
+  /// the silence.
+  ///
+  /// The symptom, so nobody spends a day on it again: the video loads and
+  /// displays correctly, shows its play button, and simply never starts.
   public let allowsAutoplay: Bool
   /// Whether the player starts with its sound off.
   ///
