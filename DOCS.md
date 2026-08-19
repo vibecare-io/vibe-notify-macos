@@ -248,6 +248,7 @@ renderers wearing one name.
 public init(
     illustration: Illustration? = nil,
     artworkTone: ArtworkTone = .automatic,
+    webPanel: WebPanel? = nil,          // see § Web panel; replaces the illustration
     title: String? = nil,
     message: String? = nil,
     footnote: String? = nil,
