@@ -70,11 +70,16 @@ struct WebPanelView: NSViewRepresentable {
   /// `baseURL` — see `embedderOrigin` for why the document needs an origin at
   /// all, and why it must not be YouTube's own.
   ///
-  /// `allow="autoplay"` is present only when the caller asked for it. The
-  /// attribute is what grants the frame permission, so including it always
-  /// would hand every embedded player the right to start regardless of
-  /// `allowsAutoplay`. Note it is necessary and not sufficient: the URL must
-  /// also carry `autoplay=1&mute=1`, which `WebPanel.loadURL` handles.
+  /// `allow` is unconditional, and that is not an oversight. The attribute
+  /// grants the frame *permission* to autoplay; it does not ask it to. What
+  /// asks is `autoplay=1` in the URL, which `WebPanel.loadURL` emits only when
+  /// the caller set `allowsAutoplay` — so the caller's choice is still the one
+  /// thing deciding whether anything starts, and a frame permitted to do
+  /// something it is never told to do does nothing.
+  ///
+  /// (An earlier version made the attribute conditional and said so here. The
+  /// condition went away with the top-level-load experiment; the comment did
+  /// not, and claimed a behaviour the code no longer had.)
   private static func playerDocument(for url: URL) -> String {
     let allow = "autoplay; fullscreen; picture-in-picture"
     // The URL is emitted into an HTML attribute, so its ampersands, quotes and
