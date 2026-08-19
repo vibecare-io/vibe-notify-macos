@@ -7,6 +7,7 @@ A comprehensive guide to using VibeNotify - a lightweight, customizable notifica
 - [Getting Started](#getting-started)
 - [Builder API](#builder-api)
 - [Rich Notifications](#rich-notifications)
+  - [Web panel](#web-panel)
 - [Alert Modes and Window Configuration](#alert-modes-and-window-configuration)
 - [Countdowns](#countdowns)
 - [NotificationClock](#notificationclock)
@@ -355,6 +356,101 @@ The enum is named for the *artwork*, not for the treatment, on purpose: a caller
 can answer "my icon is white line art", but asking them to answer "my icon wants
 a dark drop shadow rather than a light bloom" is asking them to make this
 library's rendering decision for it.
+
+### Web panel
+
+A live page in one column and the usual chrome — title, message, ring, buttons,
+footnote — in the other. A property of `RichNotification`, not a fourth
+renderer, so every legibility rule and button outcome above applies unchanged.
+
+```swift
+public struct WebPanel: Sendable, Equatable {
+    public enum Placement: Sendable { case leading, trailing }
+    public enum Presentation: Sendable { case direct, player }
+
+    public let url: URL               // rewritten for YouTube — see below
+    public let placement: Placement   // which side the page takes; default .leading
+    public let widthFraction: CGFloat // clamped 0.3...0.85, default 0.64
+    public let allowsAutoplay: Bool   // default false
+    public let startsMuted: Bool      // default true
+    public let loops: Bool            // default false
+    public var loadURL: URL           // url + the playback options
+}
+```
+
+```swift
+RichNotification(
+    webPanel: WebPanel(url: shortURL, widthFraction: 0.36, allowsAutoplay: true, loops: true),
+    title: "Rest your eyes",
+    taskTimer: TaskTimer(duration: 60, unitLabel: "seconds", completionLabel: "Eyes rested"),
+    mode: .interrupt)
+```
+
+**Ignored in `.ambient`** (`effectiveWebPanel`), for the reason a task timer is:
+a 380×210 toast split into two columns is two columns too narrow to be either,
+and a `WKWebView` is expensive to instantiate for something nobody can read. The
+builder therefore upgrades to `.interrupt` on a web panel exactly as it does on
+a task timer.
+
+**It replaces the illustration** (`effectiveIllustration` returns nil). The
+panel *is* the picture; two focal points is the composition problem
+`RichMetrics` exists to avoid. The caller's stored `illustration` is left
+untouched — this reinterprets, it does not rewrite.
+
+#### Two interaction changes, both deliberate
+
+| Behaviour | Why |
+|---|---|
+| Click-anywhere-to-dismiss is **suppressed** | Everywhere else it is a courtesy; with a game in the panel, one shot landing in the margin would cancel the break and explain nothing. ESC and the buttons remain. |
+| The countdown **leads** the rail rather than following the text | The rail is read against a panel that has already taken the eye, so it must go *how long is left → what to do → how to leave*. |
+
+#### YouTube links are rewritten
+
+`watch?v=`, `youtu.be`, `/shorts/` and `/live/` all become an `/embed/` URL
+presented `.player`, preserving any start offset in either spelling (`t=68`,
+`t=1m30s`). Everything else is left untouched and loaded `.direct`.
+
+Shorts especially need it: followed directly, a Short plays and then scrolls on
+to the next one — an infinite feed at the exact moment the break was meant to
+stop the user looking at one.
+
+#### The three things that break an embed
+
+Each was diagnosed the hard way and each has a test holding it.
+
+| Symptom | Cause | What the library does |
+|---|---|---|
+| `Error 153 — player configuration error` | No `Referer`/origin. A top-level navigation to `/embed/` carries none. | Loads the player in an `<iframe>` inside a document that has a real origin. |
+| `Error 152 — video unavailable` | The wrapper document claimed **the target's own** origin. An embed is meant to be cross-origin. | Uses a reserved `.invalid` host: third-party, unresolvable, so it cannot be mistaken for a real site or collide with one's cookies in the shared data store. |
+| Autoplay silently never starts | Unmuted autoplay is refused without a user gesture, and the refusal looks exactly like a video waiting to be clicked. | `startsMuted` defaults to `true`, and `loadURL` emits `mute=1` alongside `autoplay=1`. |
+
+**`loop=1` is emitted with `playlist=<the same video id>`.** On a single video
+YouTube ignores `loop` without it — the parameter was designed for playlists,
+and the single-video spelling is a documented workaround, not an oversight to be
+tidied away.
+
+#### Low Power Mode defeats autoplay entirely
+
+Measured. With macOS Low Power Mode on, WebKit's
+`RequireUserGestureForVideoDueToLowPowerMode` refuses to start **any** video
+without a real click — muted or not, `autoplay=1` or not, and whatever the host
+sets `WKWebViewConfiguration.mediaTypesRequiringUserActionForPlayback` to. It
+has no muted exemption, no platform guard, and no API or SPI that lifts it.
+
+Deliberately not detected or worked around: the only thing that satisfies the
+gate is the user pressing play, which is the fallback anyway. The symptom, so
+nobody spends a day on it again — **the video loads and displays correctly,
+shows its play button, and simply never starts.**
+
+#### Authentication
+
+`WebPanelView` uses the default (persistent, process-wide)
+`WKWebsiteDataStore`, not an ephemeral one. The library is linked into its host,
+so that is the same cookie jar the host's own web views write to: a host that
+has already exchanged a token for a session cookie has already authenticated
+this panel, and a signed-in webmail stays signed in between alerts. An ephemeral
+store is the more cautious default in a browser; here it would mean every break
+surface opening on a login page.
 
 ### Completion honesty
 

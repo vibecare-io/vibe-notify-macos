@@ -33,6 +33,7 @@ asked for.
 ## Features
 
 - 🖼️ **Rich Notifications**: Illustration + buttons + countdown on one surface, no card
+- 🌐 **Web Panel**: Embed a live page beside the countdown — a game, a video, an inbox — so a break can *be* something instead of describing one
 - ⏱️ **Countdowns The Library Owns**: A cancellable clock per overlay, not an `asyncAfter` in a view body
 - 👁️ **Legibility By Construction**: White text is never drawn over a backdrop whose luminance is unknown
 - 🎨 **Multiple Presentation Modes**: Full-screen, banner, toast, and 9-position layouts
